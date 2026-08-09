@@ -1,0 +1,217 @@
+# Test suite for memory_hardening helpers (v0.3.0)
+# Run from the plugin directory:
+#   python tests/test_helpers.py
+# Or from anywhere with the right sys.path:
+#   python /a0/usr/plugins/memory_hardening/tests/test_helpers.py
+import sys, os, asyncio, time, ast
+sys.path.insert(0, '/a0')
+sys.path.insert(0, '/a0/usr/plugins')
+from memory_hardening.helpers import (
+    telemetry, watchdog, circuit_breaker,
+    memorize_watchdog, index_gc, faiss_health, auto_recover,
+    rate_limiter, per_subdir_breaker, adaptive_interval,
+    quarantine, memorize_canceller, embedding_swap, recall_patch,
+)
+
+results = []
+
+def test(name, fn):
+    try:
+        fn()
+        results.append((name, 'PASS'))
+    except Exception as e:
+        results.append((name, f'FAIL: {e}'))
+
+# Phase 1
+def t_telemetry():
+    t = telemetry; t.reset()
+    t.record_outcome(outcome='success', latency_ms=42.0)
+    t.record_outcome(outcome='timeout', latency_ms=30000.0)
+    assert t.snapshot()['counters']['recall_succeeded'] == 1
+    assert t.snapshot()['counters']['recall_timeout'] == 1
+def t_breaker():
+    cb = circuit_breaker.CircuitBreaker(window_sec=10, failure_threshold=3, cooldown_sec=0.5)
+    cb.record('timeout'); cb.record('timeout'); assert not cb.should_skip()
+    cb.record('timeout'); assert cb.should_skip()
+def t_watchdog():
+    wd = watchdog.WatchdogRegistry; wd.cancel_all()
+    class C: id = 'ctx-r1'
+    class A: context = C()
+    a = A()
+    async def ok(): await asyncio.sleep(0.01)
+    async def run():
+        tk = asyncio.create_task(ok())
+        wd.track(a, tk, hard_cap_sec=2.0)
+        await asyncio.sleep(0.05)
+        wd.mark_completed(a)
+    asyncio.run(run())
+
+# Phase 2
+def t_memorize():
+    mw = memorize_watchdog; mw.MemorizeWatchdogRegistry.clear()
+    class C: id = 'ctx-m1'
+    class A: context = C()
+    a = A()
+    mw.MemorizeWatchdogRegistry.begin(a, phase='memorize')
+    time.sleep(0.15)
+    s = mw.MemorizeWatchdogRegistry.check(a, soft_cap_sec=0.05, hard_warn_sec=0.1)
+    assert s is not None and s['level'] == 'hard'
+    mw.MemorizeWatchdogRegistry.end(a)
+def t_faiss():
+    r = faiss_health.probe_all()
+    assert 'count' in r and 'results' in r
+    info = faiss_health.probe_one('/nonexistent/index.faiss')
+    assert info['warning'] == 'missing'
+def t_auto_recover():
+    rec = auto_recover.attempt_recovery('test-sub', '/nonexistent/index.faiss')
+    assert rec.get('attempted') is True
+    assert 'test-sub' in auto_recover.history()
+def t_index_gc():
+    res = index_gc.gc_once(idle_min=30, max_entries=16)
+    assert 'inspected' in res
+    snap = index_gc.snapshot()
+    assert 'current_size' in snap
+
+# Phase 3
+def t_rate_limiter():
+    rl = rate_limiter
+    rl.reset()
+    # first burst should succeed
+    for i in range(5):
+        assert rl.try_acquire('subdir-A', max_per_min=60, burst=5) is True
+    # 6th should fail (burst exhausted)
+    assert rl.try_acquire('subdir-A', max_per_min=60, burst=5) is False
+    snap = rl.snapshot()
+    assert snap['stats']['allowed'] >= 5
+    assert snap['stats']['throttled'] >= 1
+def t_per_subdir_breaker():
+    psb = per_subdir_breaker
+    psb.reset()
+    kw = {'window_sec': 10, 'threshold': 2, 'cooldown_sec': 0.5}
+    psb.record('subdir-A', 'timeout', **kw)
+    psb.record('subdir-A', 'timeout', **kw)
+    assert psb.should_skip('subdir-A', **kw) is True
+    assert psb.should_skip('subdir-B', **kw) is False
+    snap = psb.snapshot()
+    assert 'subdir-A' in snap
+    # subdir-B may appear in snapshot because should_skip lazily creates entries
+    assert snap['subdir-A']['state'] == 'open'
+    assert snap['subdir-A']['failure_count'] == 2
+def t_adaptive_interval():
+    ai = adaptive_interval
+    ai.reset()
+    for _ in range(5):
+        ai.record_latency_ms(100.0)
+    new = ai.adjust(min_interval=2, max_interval=15, target_p99_ms=500.0, current_interval=3)
+    # p99 is 100ms which is < 350ms (0.7 * 500), so interval should narrow
+    assert new <= 3
+    snap = ai.snapshot()
+    assert snap['sample_count'] == 5
+def t_quarantine():
+    q = quarantine
+    # scan with very short max_age to find candidates
+    result = q.scan(max_age_days=0)
+    assert 'candidates' in result
+    assert 'scanned_at' in result
+def t_memorize_canceller():
+    mc = memorize_canceller
+    mc.reset()
+    mc.request_cancel('agent-1')
+    assert mc.is_cancelled('agent-1') is True
+    mc.clear('agent-1')
+    assert mc.is_cancelled('agent-1') is False
+    snap = mc.snapshot()
+    assert snap['stats']['cancelled_cooperative'] == 1
+def t_embedding_swap():
+    es = embedding_swap
+    es.reset()
+    es.begin_swap('model-A', 'model-B', shadow_requests=3)
+    sim = es.record_comparison(old_vec=[1.0, 0.0], new_vec=[1.0, 0.0])
+    assert sim == 1.0
+    assert es.should_commit(consensus_min=0.9) is False  # only 1 of 3
+    es.record_comparison(old_vec=[1.0, 0.0], new_vec=[0.0, 1.0])  # sim=0
+    es.record_comparison(old_vec=[1.0, 0.0], new_vec=[1.0, 0.0])  # sim=1
+    # avg = (1+0+1)/3 = 0.67 < 0.8
+    assert es.should_commit(consensus_min=0.8) is False
+    rec = es.abort('test')
+    assert rec is None  # abort does not return
+    snap = es.snapshot()
+    assert snap['stats']['swaps_aborted'] == 1
+
+
+# v0.3.2 -- recall_patch helper tests
+def t_recall_patch_initial():
+    rp = recall_patch
+    rp.reset_state()
+    state = rp.apply_recall_patch(enabled=True)
+    assert state["patch_attempts"] >= 1
+    assert state["last_status"] in (
+        "applied", "already_present", "import_error",
+        "class_not_found", "setattr_error",
+    )
+    for k in ("applied", "already_present", "import_errors",
+              "class_not_found", "patch_attempts"):
+        assert isinstance(state[k], int) and state[k] >= 0
+
+
+def t_recall_patch_idempotent():
+    rp = recall_patch
+    rp.reset_state()
+    s1 = rp.apply_recall_patch(enabled=True)
+    s2 = rp.apply_recall_patch(enabled=True)
+    assert s2["patch_attempts"] == s1["patch_attempts"] + 1
+
+
+def t_recall_patch_disabled():
+    rp = recall_patch
+    rp.reset_state()
+    state = rp.apply_recall_patch(enabled=False)
+    assert state["last_status"] == "disabled"
+    assert state["patch_attempts"] == 0
+    assert state["applied"] == 0
+
+
+def t_recall_patch_state_shape():
+    rp = recall_patch
+    state = rp.get_state()
+    required_keys = {
+        "applied", "already_present", "import_errors",
+        "class_not_found", "patch_attempts",
+        "last_status", "last_error", "method_source", "method_size_bytes",
+    }
+    assert required_keys.issubset(state.keys())
+    assert isinstance(state["method_source"], str)
+    assert state["method_source"].startswith("embedded_last_known_good")
+
+
+for name, fn in [
+    ('p1_telemetry', t_telemetry),
+    ('p1_breaker', t_breaker),
+    ('p1_watchdog', t_watchdog),
+    ('p2_memorize', t_memorize),
+    ('p2_faiss_health', t_faiss),
+    ('p2_auto_recover', t_auto_recover),
+    ('p2_index_gc', t_index_gc),
+    ('p3_rate_limiter', t_rate_limiter),
+    ('p3_per_subdir_breaker', t_per_subdir_breaker),
+    ('p3_adaptive_interval', t_adaptive_interval),
+    ('p3_quarantine', t_quarantine),
+    ('p3_memorize_canceller', t_memorize_canceller),
+    ('p3_embedding_swap', t_embedding_swap),
+    # v0.3.2
+    ('p32_recall_patch_initial', t_recall_patch_initial),
+    ('p32_recall_patch_idempotent', t_recall_patch_idempotent),
+    ('p32_recall_patch_disabled', t_recall_patch_disabled),
+    ('p32_recall_patch_state_shape', t_recall_patch_state_shape),
+]:
+    test(name, fn)
+
+print('=' * 70)
+total = 0; passed = 0
+for n, r in results:
+    total += 1
+    if r.startswith('PASS'): passed += 1
+    print(f'  {n:30s} {r}')
+print('=' * 70)
+print(f'{passed}/{total} tests passed')
+sys.exit(0 if passed == total else 1)

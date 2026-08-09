@@ -1,0 +1,183 @@
+# memory_hardening -- default configuration (v0.3.1)
+#
+# All Phase 1+2+3 features are ENABLED by default with recommended values.
+# To disable a feature, set its `_enabled` key to false. Advanced tuning
+# (timeouts, thresholds, intervals) is hidden behind the "Show advanced"
+# toggle in the WebUI -- the defaults below are the recommended values.
+#
+# Preset: "Recommended" -- safe, well-tested, minimal noise.
+# For stricter behavior, see the "Advanced" section in the WebUI.
+
+hardening_enabled: true
+
+# ============================================================
+# Phase 1: Watchdog (recommended: ON)
+# ============================================================
+# Tracks the asyncio recall task and forces it to stop on context
+# close. Without this, a slow FAISS search can hang the event loop.
+watchdog_enabled: true
+watchdog_hard_cap_sec: 90        # max seconds a recall task may live
+watchdog_await_cap_sec: 60       # max seconds _91_recall_wait may block
+
+# ============================================================
+# Phase 1: Circuit Breaker (recommended: ON)
+# ============================================================
+# Stops calling FAISS after 3 timeouts in 5 minutes. Prevents the
+# "thundering retry" pattern that makes timeouts worse.
+breaker_enabled: true
+breaker_window_sec: 300          # sliding window for failure counting
+breaker_failure_threshold: 3     # failures to open the breaker
+breaker_cooldown_sec: 60         # seconds before half-open trial
+breaker_max_entries: 64          # cap on memory of past events
+
+# ============================================================
+# Phase 1: Telemetry (recommended: ON)
+# ============================================================
+# Collects latency, success/fail counts. Exposed via /stats and the
+# WebUI dashboard. Disable only if you need the (tiny) CPU savings.
+telemetry_enabled: true
+telemetry_max_samples: 100        # rolling latency sample window
+
+# ============================================================
+# Phase 1+2: Health Probe (recommended: ON)
+# ============================================================
+# Scans for stuck tasks and probes FAISS index health every 2 minutes.
+health_probe_enabled: true
+health_probe_interval_sec: 120
+health_stuck_task_sec: 45         # flag tasks pending longer than this
+faiss_health_enabled: true
+faiss_health_min_size_bytes: 1024 # flag indexes smaller than this
+faiss_health_max_age_days: 90     # flag indexes older than this
+
+# ============================================================
+# Phase 1: Agent Notice (recommended: OFF)
+# ============================================================
+# Injects a one-line notice into the agent prompt when the breaker is
+# open. Off by default to keep prompts small; enable if you want the
+# agent to know recall is temporarily disabled.
+agent_notice_enabled: false
+
+# ============================================================
+# Phase 2: Memorize Watchdog (recommended: ON)
+# ============================================================
+# Warns when a background memorize task runs longer than expected.
+# Note: we cannot cancel a background thread from the main loop, so
+# the cap is a warning + telemetry, not a hard cancel.
+memorize_watchdog_enabled: true
+memorize_watchdog_soft_cap_sec: 120   # soft warning threshold
+memorize_watchdog_hard_warn_sec: 300  # hard warning threshold
+
+# ============================================================
+# Phase 2: Index Cache GC (recommended: ON)
+# ============================================================
+# Memory.index is a process-global dict that never frees. This GC
+# evicts entries idle for 30 minutes or caps the cache at 16 entries.
+index_gc_enabled: true
+index_gc_interval_sec: 300
+index_gc_idle_min: 30
+index_gc_max_entries: 16
+
+# ============================================================
+# Phase 2: Auto-Recovery (recommended: ON)
+# ============================================================
+# On FAISS load failure, transparently quarantine the corrupt file
+# and let the next load rebuild from the embeddings cache + docs.
+auto_recover_enabled: true
+auto_recover_quarantine_dir: tmp/memory/quarantine
+
+# ============================================================
+# Phase 2: WebUI Dashboard (recommended: ON)
+# ============================================================
+# Live status panel in the WebUI. Auto-refreshes every 5 seconds.
+dashboard_enabled: true
+dashboard_refresh_sec: 5
+dashboard_max_points: 60
+
+# ============================================================
+# Phase 3: Rate Limiter (recommended: ON)
+# ============================================================
+# Per-subdir token bucket. Caps FAISS recall rate per memory subdir
+# to prevent thrashing when one project is hot.
+rate_limiter_enabled: true
+rate_limiter_max_per_min: 20    # 20 recalls/min/subdir
+rate_limiter_burst: 5            # burst allowance
+
+# ============================================================
+# Phase 3: Per-Subdir Breaker (recommended: ON)
+# ============================================================
+# One breaker per memory subdir. A noisy project can no longer
+# starve the rest. More aggressive than the global breaker.
+per_subdir_breaker_enabled: true
+per_subdir_breaker_window_sec: 180
+per_subdir_breaker_threshold: 2  # 2 failures in window = open
+per_subdir_breaker_cooldown_sec: 90
+
+# ============================================================
+# Phase 3: Adaptive Recall Interval (recommended: ON)
+# ============================================================
+# When the breaker is tripping, widens memory_recall_interval from
+# 3 to 10 to reduce FAISS pressure. Narrows back when stable.
+adaptive_interval_enabled: true
+adaptive_interval_min: 3         # never recall more often than every 3 iters
+adaptive_interval_max: 10        # never recall less often than every 10 iters
+adaptive_interval_target_p99_ms: 5000  # target p99 latency
+
+# ============================================================
+# Phase 3: Memorize Hard Cancel (recommended: ON)
+# ============================================================
+# Cooperative cancellation + stuck-thread scanner for the
+# DeferredTask workers that run memorize in the background.
+memorize_hard_cancel_enabled: true
+memorize_hard_cancel_scan_sec: 60  # flag threads alive longer than this
+
+# ============================================================
+# Phase 3: Quarantine (recommended: OFF)
+# ============================================================
+# Auto-archives memory indexes older than 90 days. Off by default
+# because it adds disk I/O and is only useful for long-running setups.
+quarantine_enabled: false
+quarantine_max_age_days: 90
+quarantine_scan_interval_sec: 3600
+quarantine_archive_dir: tmp/memory/archive
+
+# ============================================================
+# Phase 3: Embedding Hot-Swap (recommended: OFF)
+# ============================================================
+# Shadow validation framework for embedding model changes. Scaffolded
+# in v0.3.0; requires user-supplied validation logic to be useful.
+embedding_swap_enabled: false
+embedding_swap_shadow_requests: 10
+embedding_swap_consensus_min: 0.8
+
+# ============================================================
+# Phase 4: Coroutine Guard (recommended: ON)
+# ============================================================
+# Closes litellm/httpx coroutines that are leaked when
+# ``asyncio.wait_for`` cancels an outer task. Without this, each
+# utility-model timeout during a multi-hour provider outage leaves
+# an ``OpenAIChatCompletion.acompletion`` coroutine on the floor,
+# which Python logs as ``RuntimeWarning: coroutine '...' was
+# never awaited`` and which pins the openai client's HTTP transport
+# until the OS-level keepalive timer expires.
+#
+# The helper is consumed by ``usr.plugins._model_fallback``'s
+# timeout path. The job_loop sweep
+# (``extensions/python/job_loop/_70_coroutine_guard_sweep.py``)
+# runs once a minute as a safety net for any other code path that
+# does its own wait_for without going through our close helper.
+coroutine_guard_enabled: true
+
+# ============================================================
+# v0.3.2: Recall Method Patch (recommended: ON)
+# ============================================================
+# The _memory plugin v1.2.0 added a _safe_recall wrapper that calls
+# `self.search_memories(...)`, but the refactor accidentally removed
+# the `search_memories` method from the RecallMemories class. Without
+# this patch, every memory recall silently fails with:
+#   AttributeError: 'RecallMemories' object has no attribute 'search_memories'
+#
+# This extension monkey-patches the missing method at runtime using the
+# last known-good implementation (pre-v1.2.0). Zero source modification.
+# If a future _memory update restores the method, this patch becomes a
+# no-op and the counter shows "already_present" in /stats.
+recall_patch_enabled: true

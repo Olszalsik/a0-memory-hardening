@@ -1,0 +1,195 @@
+<html><head><title>Memory Hardening v0.3.1</title>
+<script type="module">import { store } from "/components/plugins/plugin-settings-store.js";</script>
+<style>
+body{font-family:system-ui,sans-serif;padding:16px;max-width:800px;margin:0 auto;}
+.mh-card{border:1px solid #444;border-radius:8px;padding:12px;margin-bottom:10px;}
+.mh-card h3{margin:0 0 6px 0;font-size:14px;display:flex;align-items:center;gap:8px;}
+.mh-card p{margin:0 0 8px 0;font-size:12px;opacity:0.75;line-height:1.4;}
+.mh-toggle{display:flex;align-items:center;justify-content:space-between;padding:4px 0;}
+.mh-toggle label{flex:1;font-size:13px;cursor:pointer;}
+.mh-toggle input{width:18px;height:18px;cursor:pointer;}
+.mh-badge{font-size:10px;padding:2px 6px;border-radius:8px;background:#0a4;color:#fff;}
+.mh-badge.off{background:#444;color:#ccc;}
+.mh-adv{border-top:1px solid #333;margin-top:8px;padding-top:8px;}
+.mh-adv summary{cursor:pointer;font-size:12px;opacity:0.7;padding:2px 0;}
+.mh-adv summary:hover{opacity:1;}
+.mh-adv-row{display:flex;align-items:center;justify-content:space-between;padding:2px 0;font-size:12px;}
+.mh-adv-row label{flex:1;opacity:0.8;}
+.mh-adv-row input{width:60px;padding:2px 4px;background:#2a2a2a;color:inherit;border:1px solid #444;border-radius:3px;}
+.mh-summary{padding:12px 16px;background:#2a2a2a;border-radius:8px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;}
+.mh-summary .num{font-size:24px;font-weight:bold;color:#6cf;}
+.mh-summary .lbl{font-size:11px;opacity:0.7;}
+.mh-actions{display:flex;gap:8px;margin:14px 0;}
+.mh-actions button{padding:8px 16px;border-radius:6px;border:1px solid #444;background:#2a2a2a;color:inherit;cursor:pointer;font-size:13px;}
+.mh-actions button.primary{background:#0a4;color:#fff;border-color:#0a4;}
+.mh-actions button.danger{border-color:#c44;color:#fbb;}
+.mh-msg{margin-top:6px;font-size:12px;min-height:1.2em;}
+.mh-msg.ok{color:#6f6;} .mh-msg.err{color:#f66;}
+.mh-stats{font-family:monospace;font-size:12px;background:#1e1e1e;padding:10px;border-radius:6px;border:1px solid #333;max-height:240px;overflow:auto;}
+.mh-stats .k{color:#6cf;} .mh-stats .v{color:#fc6;}
+</style></head><body>
+<div x-data="alpineState()" x-init="init()">
+
+<div class="mh-summary">
+<div><div class="num" x-text="activeCount() + ' / 13'"></div><div class="lbl">features active</div></div>
+<div style="text-align:right;"><div class="lbl">Last refresh</div><div x-text="lastUpdate"></div></div>
+</div>
+
+<div class="mh-card">
+<h3>Master <span class="mh-badge" :class="cfg.hardening_enabled ? '' : 'off'" x-text="cfg.hardening_enabled ? 'ON' : 'OFF'"></span></h3>
+<p>Master kill switch. When OFF, all hardening is disabled.</p>
+<div class="mh-toggle"><label>Hardening enabled</label><input type="checkbox" x-model="cfg.hardening_enabled"></div>
+</div>
+
+<div class="mh-card">
+<h3>Recall Watchdog <span class="mh-badge" :class="cfg.watchdog_enabled ? '' : 'off'" x-text="cfg.watchdog_enabled ? 'ON' : 'OFF'"></span></h3>
+<p>Tracks the recall task and forces it to stop on context close. Prevents event loop hangs.</p>
+<div class="mh-toggle"><label>Watchdog enabled</label><input type="checkbox" x-model="cfg.watchdog_enabled"></div>
+<details class="mh-adv"><summary>Advanced</summary>
+<div class="mh-adv-row"><label>Hard cap (sec)</label><input type="number" min="10" x-model.number="cfg.watchdog_hard_cap_sec"></div>
+<div class="mh-adv-row"><label>Await cap (sec)</label><input type="number" min="5" x-model.number="cfg.watchdog_await_cap_sec"></div>
+</details>
+</div>
+
+<div class="mh-card">
+<h3>Circuit Breaker <span class="mh-badge" :class="cfg.breaker_enabled ? '' : 'off'" x-text="cfg.breaker_enabled ? 'ON' : 'OFF'"></span></h3>
+<p>Stops calling FAISS after repeated timeouts. Prevents retry storms.</p>
+<div class="mh-toggle"><label>Breaker enabled</label><input type="checkbox" x-model="cfg.breaker_enabled"></div>
+<details class="mh-adv"><summary>Advanced</summary>
+<div class="mh-adv-row"><label>Window (sec)</label><input type="number" min="30" x-model.number="cfg.breaker_window_sec"></div>
+<div class="mh-adv-row"><label>Failure threshold</label><input type="number" min="1" x-model.number="cfg.breaker_failure_threshold"></div>
+<div class="mh-adv-row"><label>Cooldown (sec)</label><input type="number" min="10" x-model.number="cfg.breaker_cooldown_sec"></div>
+</details>
+</div>
+
+<div class="mh-card">
+<h3>Telemetry & Health <span class="mh-badge" :class="(cfg.telemetry_enabled && cfg.health_probe_enabled) ? '' : 'off'" x-text="(cfg.telemetry_enabled && cfg.health_probe_enabled) ? 'ON' : 'OFF'"></span></h3>
+<p>Collects latency and success/fail metrics. Scans for stuck tasks and FAISS issues.</p>
+<div class="mh-toggle"><label>Telemetry enabled</label><input type="checkbox" x-model="cfg.telemetry_enabled"></div>
+<div class="mh-toggle"><label>Health probe enabled</label><input type="checkbox" x-model="cfg.health_probe_enabled"></div>
+<div class="mh-toggle"><label>FAISS health probe</label><input type="checkbox" x-model="cfg.faiss_health_enabled"></div>
+<details class="mh-adv"><summary>Advanced</summary>
+<div class="mh-adv-row"><label>Max samples</label><input type="number" min="10" x-model.number="cfg.telemetry_max_samples"></div>
+<div class="mh-adv-row"><label>Probe interval (sec)</label><input type="number" min="30" x-model.number="cfg.health_probe_interval_sec"></div>
+<div class="mh-adv-row"><label>FAISS min size (bytes)</label><input type="number" min="0" x-model.number="cfg.faiss_health_min_size_bytes"></div>
+<div class="mh-adv-row"><label>FAISS max age (days)</label><input type="number" min="1" x-model.number="cfg.faiss_health_max_age_days"></div>
+</details>
+</div>
+
+<div class="mh-card">
+<h3>Memorize Watchdog <span class="mh-badge" :class="cfg.memorize_watchdog_enabled ? '' : 'off'" x-text="cfg.memorize_watchdog_enabled ? 'ON' : 'OFF'"></span></h3>
+<p>Warns when background memorize tasks run too long. Cannot cancel threads, so this is a warning.</p>
+<div class="mh-toggle"><label>Memorize watchdog enabled</label><input type="checkbox" x-model="cfg.memorize_watchdog_enabled"></div>
+</div>
+
+<div class="mh-card">
+<h3>Index Cache GC <span class="mh-badge" :class="cfg.index_gc_enabled ? '' : 'off'" x-text="cfg.index_gc_enabled ? 'ON' : 'OFF'"></span></h3>
+<p>Evicts idle FAISS index entries to prevent memory leaks.</p>
+<div class="mh-toggle"><label>Index GC enabled</label><input type="checkbox" x-model="cfg.index_gc_enabled"></div>
+</div>
+
+<div class="mh-card">
+<h3>Auto-Recovery <span class="mh-badge" :class="cfg.auto_recover_enabled ? '' : 'off'" x-text="cfg.auto_recover_enabled ? 'ON' : 'OFF'"></span></h3>
+<p>On FAISS corruption, quarantines the bad file and rebuilds from cache.</p>
+<div class="mh-toggle"><label>Auto-recovery enabled</label><input type="checkbox" x-model="cfg.auto_recover_enabled"></div>
+</div>
+
+<div class="mh-card">
+<h3>Rate Limiter <span class="mh-badge" :class="cfg.rate_limiter_enabled ? '' : 'off'" x-text="cfg.rate_limiter_enabled ? 'ON' : 'OFF'"></span></h3>
+<p>Per-subdir token bucket. Prevents one project from thrashing FAISS.</p>
+<div class="mh-toggle"><label>Rate limiter enabled</label><input type="checkbox" x-model="cfg.rate_limiter_enabled"></div>
+</div>
+
+<div class="mh-card">
+<h3>Per-Subdir Breaker <span class="mh-badge" :class="cfg.per_subdir_breaker_enabled ? '' : 'off'" x-text="cfg.per_subdir_breaker_enabled ? 'ON' : 'OFF'"></span></h3>
+<p>One breaker per memory subdir. Noisy projects cannot starve others.</p>
+<div class="mh-toggle"><label>Per-subdir breaker enabled</label><input type="checkbox" x-model="cfg.per_subdir_breaker_enabled"></div>
+</div>
+
+<div class="mh-card">
+<h3>Adaptive Interval <span class="mh-badge" :class="cfg.adaptive_interval_enabled ? '' : 'off'" x-text="cfg.adaptive_interval_enabled ? 'ON' : 'OFF'"></span></h3>
+<p>Widens recall interval when the breaker is tripping, narrows back when stable.</p>
+<div class="mh-toggle"><label>Adaptive interval enabled</label><input type="checkbox" x-model="cfg.adaptive_interval_enabled"></div>
+</div>
+
+<div class="mh-card">
+<h3>Memorize Hard Cancel <span class="mh-badge" :class="cfg.memorize_hard_cancel_enabled ? '' : 'off'" x-text="cfg.memorize_hard_cancel_enabled ? 'ON' : 'OFF'"></span></h3>
+<p>Cooperative cancellation + stuck-thread scanner for DeferredTask workers.</p>
+<div class="mh-toggle"><label>Memorize hard cancel enabled</label><input type="checkbox" x-model="cfg.memorize_hard_cancel_enabled"></div>
+</div>
+
+<div class="mh-card">
+<h3>Advanced Features (OFF by default)</h3>
+<p>Enable only if you know you need them.</p>
+<div class="mh-toggle"><label>Quarantine (auto-archive stale indexes)</label><input type="checkbox" x-model="cfg.quarantine_enabled"></div>
+<div class="mh-toggle"><label>Embedding Hot-Swap (shadow validation)</label><input type="checkbox" x-model="cfg.embedding_swap_enabled"></div>
+<div class="mh-toggle"><label>Agent notice on breaker open</label><input type="checkbox" x-model="cfg.agent_notice_enabled"></div>
+</div>
+
+<div class="mh-actions">
+<button class="primary" @click="save()" :disabled="busy">Save</button>
+<button @click="refresh()" :disabled="busy">Refresh</button>
+<button class="danger" @click="resetBreaker()" :disabled="busy">Reset Breaker</button>
+</div>
+<div class="mh-msg" :class="msgKind" x-text="msg"></div>
+
+<div class="mh-card" x-show="stats"><h3>Live Status</h3><div class="mh-stats">
+<template x-if="stats && stats.breaker"><div>Breaker: <span :class="breakerClass(stats.breaker.state)" x-text="stats.breaker.state"></span> | Failures: <span class="v" x-text="stats.breaker.failure_count_in_window + ' / ' + stats.breaker.failure_threshold"></span> | Cooldown: <span class="v" x-text="Math.round(stats.breaker.cooldown_remaining_sec) + 's'"></span></div></template>
+<template x-if="stats && stats.telemetry"><div style="margin-top:6px;">Uptime: <span class="v" x-text="fmtUptime(stats.telemetry.uptime_sec)"></span> | Recalls: <span class="v" x-text="stats.telemetry.counters.recall_started"></span> | OK: <span class="v" x-text="stats.telemetry.counters.recall_succeeded + stats.telemetry.counters.recall_no_results"></span> | Fail: <span class="v" x-text="stats.telemetry.counters.recall_failed"></span> | Timeout: <span class="v" x-text="stats.telemetry.counters.recall_timeout"></span></div></template>
+<template x-if="stats && stats.telemetry && stats.telemetry.latency && stats.telemetry.latency.count > 0"><div style="margin-top:6px;">Latency: <span class="v" x-text="fmtMs(stats.telemetry.latency.avg_ms)"></span> avg, <span class="v" x-text="fmtMs(stats.telemetry.latency.p50_ms)"></span> p50, <span class="v" x-text="fmtMs(stats.telemetry.latency.p95_ms)"></span> p95, <span class="v" x-text="fmtMs(stats.telemetry.latency.p99_ms)"></span> p99</div></template>
+<template x-if="stats && stats.rate_limiter"><div style="margin-top:6px;">Rate limiter: allowed=<span class="v" x-text="stats.rate_limiter.stats.allowed || 0"></span> throttled=<span class="v" x-text="stats.rate_limiter.stats.throttled || 0"></span></div></template>
+<template x-if="stats && stats.adaptive_interval"><div style="margin-top:6px;">Adaptive interval: current=<span class="v" x-text="stats.adaptive_interval.current_interval || 0"></span> p99=<span class="v" x-text="fmtMs(stats.adaptive_interval.p99_ms)"></span></div></template>
+</div></div>
+
+</div>
+      <!-- v0.4.0: Recall Method Patch (fixes _memory v1.2.0 regression) -->
+      <div class="card" id="card-recall-patch" style="margin-top:16px;">
+        <div class="card-header">
+          <h3>Recall Method Patch</h3>
+          <span class="card-status" id="recall-patch-status">checking...</span>
+        </div>
+        <div class="card-body">
+          <p class="card-desc">
+            Restores the missing <code>search_memories()</code> method on
+            <code>RecallMemories</code> in the <code>_memory</code> plugin v1.2.0
+            (which added a <code>_safe_recall</code> wrapper but accidentally deleted
+            the method it calls). Without this patch, every memory recall silently
+            fails with <code>AttributeError</code>.
+          </p>
+          <div class="config-row">
+            <label>
+              <input type="checkbox" id="cfg-recall-patch-enabled" />
+              <span>Enable recall method patch</span>
+            </label>
+            <span class="config-hint">Recommended: ON. Disable only if a future _memory update restores the method and you want to use the upstream version directly.</span>
+          </div>
+          <div class="status-grid" id="recall-patch-grid">
+            <div class="status-item"><span class="status-label">Last status</span><span class="status-value" id="rp-last-status">-</span></div>
+            <div class="status-item"><span class="status-label">Applied</span><span class="status-value" id="rp-applied">-</span></div>
+            <div class="status-item"><span class="status-label">Already present</span><span class="status-value" id="rp-already-present">-</span></div>
+            <div class="status-item"><span class="status-label">Import errors</span><span class="status-value" id="rp-import-errors">-</span></div>
+            <div class="status-item"><span class="status-label">Patch attempts</span><span class="status-value" id="rp-patch-attempts">-</span></div>
+            <div class="status-item"><span class="status-label">Method size</span><span class="status-value" id="rp-method-size">-</span></div>
+            <div class="status-item"><span class="status-label">Source</span><span class="status-value" id="rp-source">-</span></div>
+          </div>
+        </div>
+      </div>
+
+<script>
+function alpineState(){
+return{
+busy:false,msg:String.fromCharCode(34,34),msgKind:String.fromCharCode(34,34),lastUpdate:String.fromCharCode(45),
+stats:null,timer:null,
+cfg:{hardening_enabled:true,watchdog_enabled:true,watchdog_hard_cap_sec:90,watchdog_await_cap_sec:60,breaker_enabled:true,breaker_window_sec:300,breaker_failure_threshold:3,breaker_cooldown_sec:60,breaker_max_entries:64,telemetry_enabled:true,telemetry_max_samples:100,health_probe_enabled:true,health_probe_interval_sec:120,health_stuck_task_sec:45,faiss_health_enabled:true,faiss_health_min_size_bytes:1024,faiss_health_max_age_days:90,agent_notice_enabled:false,memorize_watchdog_enabled:true,memorize_watchdog_soft_cap_sec:120,memorize_watchdog_hard_warn_sec:300,index_gc_enabled:true,index_gc_interval_sec:300,index_gc_idle_min:30,index_gc_max_entries:16,auto_recover_enabled:true,rate_limiter_enabled:true,rate_limiter_max_per_min:20,rate_limiter_burst:5,per_subdir_breaker_enabled:true,per_subdir_breaker_window_sec:180,per_subdir_breaker_threshold:2,per_subdir_breaker_cooldown_sec:90,adaptive_interval_enabled:true,adaptive_interval_min:3,adaptive_interval_max:10,adaptive_interval_target_p99_ms:5000,memorize_hard_cancel_enabled:true,memorize_hard_cancel_scan_sec:60,quarantine_enabled:false,quarantine_max_age_days:90,quarantine_scan_interval_sec:3600,embedding_swap_enabled:false,embedding_swap_shadow_requests:10,embedding_swap_consensus_min:0.8},
+activeCount(){const f=["hardening_enabled","watchdog_enabled","breaker_enabled","telemetry_enabled","health_probe_enabled","faiss_health_enabled","memorize_watchdog_enabled","index_gc_enabled","auto_recover_enabled","rate_limiter_enabled","per_subdir_breaker_enabled","adaptive_interval_enabled","memorize_hard_cancel_enabled"];return f.filter(k=>this.cfg[k]).length;},
+async refresh(){this.busy=true;this.msg=String.fromCharCode(34,34);try{const r=await fetch(String.fromCharCode(47,97,112,105,47,112,108,117,103,105,110,115,47,109,101,109,111,114,121,95,104,97,114,100,101,110,105,110,103,47,115,116,97,116,115),{method:String.fromCharCode(80,79,83,84),body:String.fromCharCode(123,125)});const j=await r.json();this.stats=j;const c=j.config||{};for(const k of Object.keys(this.cfg)){if(typeof c[k]!==String.fromCharCode(117,110,100,101,102,105,110,101,100))this.cfg[k]=c[k];}this.lastUpdate=new Date().toLocaleTimeString();}catch(e){this.msg=String.fromCharCode(114,101,102,114,101,115,104,58,32)+e;this.msgKind=String.fromCharCode(101,114,114);}this.busy=false;},
+async save(){this.busy=true;this.msg=String.fromCharCode(34,34);try{const r=await fetch(String.fromCharCode(47,97,112,105,47,112,108,117,103,105,110,115),{method:String.fromCharCode(80,79,83,84),headers:{String.fromCharCode(99,111,110,116,101,110,116,45,116,121,112,101):String.fromCharCode(97,112,112,108,105,99,97,116,105,111,110,47,106,115,111,110)},body:JSON.stringify({action:String.fromCharCode(99,111,110,102,105,103,95,115,101,116),name:String.fromCharCode(109,101,109,111,114,121,95,104,97,114,100,101,110,105,110,103),config:this.cfg})});const j=await r.json();if(j.ok){this.msg=String.fromCharCode(115,97,118,101,100);this.msgKind=String.fromCharCode(111,107);}else{this.msg=String.fromCharCode(101,114,114,111,114,58,32)+(j.error||JSON.stringify(j));this.msgKind=String.fromCharCode(101,114,114);}}catch(e){this.msg=String.fromCharCode(115,97,118,101,58,32)+e;this.msgKind=String.fromCharCode(101,114,114);}this.busy=false;},
+async resetBreaker(){if(!confirm(String.fromCharCode(82,101,115,101,116,32,98,114,101,97,107,101,114,63)))return;this.busy=true;this.msg=String.fromCharCode(34,34);try{const r=await fetch(String.fromCharCode(47,97,112,105,47,112,108,117,103,105,110,115,47,109,101,109,111,114,121,95,104,97,114,100,101,110,105,110,103,47,114,101,115,101,116,95,98,114,101,97,107,101,114),{method:String.fromCharCode(80,79,83,84),body:String.fromCharCode(123,125)});const j=await r.json();this.msg=j.ok?String.fromCharCode(98,114,101,97,107,101,114,32,114,101,115,101,116):String.fromCharCode(101,114,114,111,114);this.msgKind=j.ok?String.fromCharCode(111,107):String.fromCharCode(101,114,114);await this.refresh();}catch(e){this.msg=String.fromCharCode(114,101,115,101,116,58,32)+e;this.msgKind=String.fromCharCode(101,114,114);}this.busy=false;},
+fmtMs(n){if(n==null)returnString.fromCharCode(45);return Math.round(n)+String.fromCharCode(109,115);},
+fmtUptime(s){if(!s)returnString.fromCharCode(45);const h=Math.floor(s/3600);const m=Math.floor((s%3600)/60);return h+String.fromCharCode(104,32)+m+String.fromCharCode(109);},
+breakerClass(state){if(state===String.fromCharCode(111,112,101,110))returnString.fromCharCode(34,109,104,45,98,114,101,97,107,101,114,45,111,112,101,110,34);if(state===String.fromCharCode(104,97,108,102,95,111,112,101,110))returnString.fromCharCode(34,109,104,45,98,114,101,97,107,101,114,45,104,97,108,102,34);returnString.fromCharCode(34,109,104,45,98,114,101,97,107,101,114,45,99,108,111,115,101,100,34);},
+init(){this.refresh();this.timer=setInterval(()=>{if(document.visibilityState==="visible")this.refresh();},60000);},
+destroy(){if(this.timer)clearInterval(this.timer);},
+}}
+</script>
+</body></html>

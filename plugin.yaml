@@ -1,0 +1,18 @@
+name: memory_hardening
+title: Memory Hardening
+description: |
+  Wraps the built-in _memory plugin with resilience, observability, and circuit-breaker
+  protection against FAISS recall timeouts, leaked asyncio tasks, stuck memorize threads,
+  and unbounded index caches. Phase 4 (2026-07-19) adds a coroutine-leak guard + UI-loop
+  pulse consumed by `_model_fallback` to keep the WebSocket dispatcher alive during
+  multi-hour provider outages. Zero source modifications to /a0/plugins/_memory/ --
+  purely additive extension hooks.
+version: 0.4.0
+author: Agent Zero Plugin (memory_hardening)
+license: MIT
+homepage: https://github.com/agent0/a0-plugins
+settings_sections:
+  - agent
+per_project_config: false
+per_agent_config: false
+always_enabled: false
