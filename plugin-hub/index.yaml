@@ -2,9 +2,11 @@
 #
 # This file is NOT read by the agent-zero runtime (the runtime reads
 # plugin.yaml). It is the index entry for the community Plugin Hub. To
-# publish, copy this file (and an optional thumbnail.png) to:
+# publish, copy this file (and the optional thumbnail.png) to:
 #   plugins/memory_hardening/
 # in a fork of https://github.com/agent0ai/a0-plugins, then open a PR.
+# A square source thumbnail already exists at webui/thumbnail.png
+# (256x256, 2.8KB) -- copy it into the folder as thumbnail.png.
 #
 # Pre-req: the GitHub repo below MUST be public (the Hub fetches the
 # README from raw.githubusercontent.com and the installer clones a
