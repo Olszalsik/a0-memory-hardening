@@ -1,0 +1,38 @@
+# Plugin Hub submission manifest (agent0ai/a0-plugins).
+#
+# This file is NOT read by the agent-zero runtime (the runtime reads
+# plugin.yaml). It is the index entry for the community Plugin Hub. To
+# publish, copy this file (and an optional thumbnail.png) to:
+#   plugins/memory_hardening/
+# in a fork of https://github.com/agent0ai/a0-plugins, then open a PR.
+#
+# Pre-req: the GitHub repo below MUST be public (the Hub fetches the
+# README from raw.githubusercontent.com and the installer clones a
+# public git URL). This repo is currently PRIVATE while the plugin is
+# still being tested -- make it public before opening the contribution
+# PR. Do NOT open the PR until testing is complete.
+#
+# CI rules (see skills/a0-contribute-plugin/SKILL.md):
+#   - title max 50 chars, description max 500 chars, tags max 5
+#   - folder name ^[a-z0-9_]+$ (no leading _) -> memory_hardening
+#   - remote plugin.yaml `name` must equal this folder name (it does:
+#     `name: memory_hardening`)
+#   - github URL must be unique in the index and point to an existing
+#     public repo
+#   - remote repo root must contain LICENSE (it does: MIT)
+
+title: Memory Hardening
+description: >-
+  Wraps the built-in _memory plugin with resilience and circuit-breaker
+  protection against FAISS recall timeouts, leaked asyncio tasks, stuck
+  memorize threads, unbounded index caches, and ContextOverflow on
+  memorize/solve. Includes a memory-history clamp (merged from the former
+  _memory_resilience plugin), per-subdir circuit breakers, adaptive recall
+  interval, recall-method patch, and a live WebUI dashboard. Zero source
+  modifications to the official _memory plugin.
+github: https://github.com/Olszalsik/a0-memory-hardening
+tags:
+  - memory
+  - development
+  - tools
+  - agents

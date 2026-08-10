@@ -1,4 +1,4 @@
-# GET /api/plugins/memory_hardening/stats (v0.3.2)
+# GET /api/plugins/memory_hardening/stats (v0.5.0)
 from __future__ import annotations
 import json
 from helpers.api import ApiHandler, Request, Response
@@ -10,6 +10,7 @@ from usr.plugins.memory_hardening.helpers import (
     coroutine_guard as cg,
     embedding_swap as es,
     faiss_health as fh,
+    history_clamp as hc,
     index_gc as igc,
     memorize_canceller as mc,
     memorize_watchdog as mw,
@@ -73,6 +74,8 @@ class Stats(ApiHandler):
             },
             # v0.3.2 (2026-07-26) — recall method patch for _memory v1.2.0 regression
             "recall_patch": rp.get_state(),
+            # v0.5.0 (2026-08-10) — memory history clamp (merged from _memory_resilience)
+            "history_clamp": hc.get_state(),
             "config": {
                 "hardening_enabled": cfg.get("hardening_enabled", True),
                 "watchdog_enabled": cfg.get("watchdog_enabled", True),
@@ -94,6 +97,8 @@ class Stats(ApiHandler):
                 "embedding_swap_enabled": cfg.get("embedding_swap_enabled", False),
                 # v0.3.2
                 "recall_patch_enabled": cfg.get("recall_patch_enabled", True),
+                # v0.5.0
+                "history_clamp_enabled": cfg.get("history_clamp_enabled", True),
             },
         }
         response.set_body(json.dumps(payload, indent=2))

@@ -10,7 +10,7 @@ def check(name, fn):
     except Exception as e:
         results.append((name, f'FAIL: {e}'))
 
-# All 14 extension files (Phase 1+2+3)
+# All 16 extension files (Phase 1+2+3+4+5)
 all_ext = [
     ('message_loop_start/_10_watchdog_init.py', 'WatchdogInit'),
     ('message_loop_start/_20_circuit_breaker.py', 'CircuitBreakerGate'),
@@ -28,6 +28,8 @@ all_ext = [
     ('job_loop/_60_adaptive_interval.py', 'AdaptiveInterval'),
     ('embedding_model_changed/_20_auto_recover.py', 'AutoRecover'),
     ('system_prompt/_05_hardening_notice.py', 'HardeningNotice'),
+    # v0.5.0
+    ('util_model_call_before/_10_clamp_memory_history.py', 'ClampMemoryUtilCall'),
 ]
 
 def t_all_extensions():
@@ -41,7 +43,7 @@ def t_all_extensions():
                 for b in n.bases:
                     if isinstance(b, ast.Name) and b.id == 'Extension':
                         found.append(expected)
-    assert len(found) == 15, f'expected 15, got {len(found)}: {found}'
+    assert len(found) == 16, f'expected 16, got {len(found)}: {found}'
 
 def t_api_handlers():
     for f, expected in [('stats.py', 'Stats'), ('reset_breaker.py', 'ResetBreaker')]:
@@ -60,13 +62,17 @@ def t_api_handlers():
 def t_manifest():
     import yaml
     m = yaml.safe_load(open('/a0/usr/plugins/memory_hardening/plugin.yaml'))
-    assert m['version'] == '0.4.0'
+    assert m['version'] == '0.5.0'
     cfg = yaml.safe_load(open('/a0/usr/plugins/memory_hardening/default_config.yaml'))
     # Check Phase 3 keys
     for k in ['rate_limiter_enabled', 'per_subdir_breaker_enabled',
               'adaptive_interval_enabled', 'memorize_hard_cancel_enabled',
               'quarantine_enabled', 'embedding_swap_enabled']:
         assert k in cfg, f'missing Phase 3 key: {k}'
+    # Check v0.5.0 history_clamp keys
+    for k in ['history_clamp_enabled', 'history_clamp_max_chars_override',
+              'history_clamp_inject_truncation_notice']:
+        assert k in cfg, f'missing history_clamp key: {k}'
 
 def t_webui():
     html = open('/a0/usr/plugins/memory_hardening/webui/config.html').read()
@@ -74,7 +80,8 @@ def t_webui():
     # Phase 3 markers
     for marker in ['Rate Limiter', 'Per-Subdir Breaker',
                    'Adaptive Interval', 'Quarantine',
-                   'Embedding Hot-Swap', 'features active', 'Advanced']:
+                   'Embedding Hot-Swap', 'features active', 'Advanced',
+                   'Memory History Clamp']:
         assert marker in html, f'missing: {marker}'
 
 def t_hook_points():
@@ -82,7 +89,8 @@ def t_hook_points():
     import os
     ext_base = '/a0/usr/plugins/memory_hardening/extensions/python/'
     hook_points = ['message_loop_start', 'monologue_end', 'message_loop_prompts_after',
-                   'job_loop', 'system_prompt', 'embedding_model_changed']
+                   'job_loop', 'system_prompt', 'embedding_model_changed',
+                   'util_model_call_before']
     for hp in hook_points:
         p = ext_base + hp
         assert os.path.isdir(p), f'missing hook point dir: {p}'

@@ -2,6 +2,43 @@
 
 All notable changes to `memory_hardening` are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-08-10
+
+### Added — Memory History Clamp (merged from `_memory_resilience`)
+
+The standalone `_memory_resilience` plugin (v1.0.0) is folded into `memory_hardening`. Both were memory patches for agent-zero; consolidating them means a single plugin owns all memory protection and a single install/enable toggle covers every layer. The standalone plugin is removed once its single extension moves here.
+
+- **`helpers/history_clamp.py`** — the clamp logic + a process-global `STATE` telemetry dict. Exposes:
+  - `clamp(call_data, agent, *, own_override=None, inject_notice=True)` — mutates `call_data["message"]` when the system prompt is a memory-recall / memorize / solve prompt and the message exceeds the budget; returns a status string; never raises.
+  - `_looks_like_memory_prompt(system)` — substring match on the official memory system-prompt file names.
+  - `_resolve_budget(agent, own_override)` — budget resolution: override → `_model_fallback.memory_memorize_max_chars` → `50000`. Booleans are rejected so a `true` config is not read as budget `1`.
+  - `get_state()` / `reset()` — for `/stats` and `uninstall()`.
+- **`extensions/python/util_model_call_before/_10_clamp_memory_history.py`** — thin `ClampMemoryUtilCall` extension. Reads `memory_hardening` config, respects `hardening_enabled` + `history_clamp_enabled`, then calls `history_clamp.clamp(...)`. Runs at priority `_10`, after the `_model_fallback` cascade hooks at `_00` / `_01`.
+- **`default_config.yaml`** — new `history_clamp_enabled` (default ON), `history_clamp_max_chars_override` (null), `history_clamp_inject_truncation_notice` (true) section.
+- **`api/stats.py`** — adds `history_clamp` field to `/stats` payload + `history_clamp_enabled` in `config`.
+- **`webui/config.html`** — new **Memory History Clamp** card (toggle + truncation-notice toggle + max-chars override) and a live status line; feature count 13 → 14; title version v0.5.0.
+- **`hooks.py`** — `uninstall()` now resets `history_clamp.STATE` (no telemetry leak across enable/disable cycles).
+- **`tests/test_history_clamp.py`** — 29 tests ported from `_memory_resilience/tests/test_clamp_v1.py`, retargeted to `memory_hardening.helpers.history_clamp` (prompt detection, budget resolution incl. bool rejection, clamp behaviour, bug-safety, extension config wiring).
+- **`tests/test_helpers.py`** — adds `t_history_clamp` (smoke test of clamp + reset); 17 → 18 tests.
+- **`tests/test_extensions.py`** — registers `_10_clamp_memory_history.py` → `ClampMemoryUtilCall`; expected extension count 15 → 16; version check 0.4.0 → 0.5.0; adds `util_model_call_before` hook point.
+- **`plugin.yaml`** — version 0.4.0 → 0.5.0; description updated to mention the merged clamp.
+- **`README.md` / `AGENTS.md`** — document the merged clamp, budget resolution, and the `util_model_call_before` ordering contract.
+
+### Fixed
+
+- **`ContextOverflow` from the official `MAX_MSGS_CHARS = 80000` budget** during memorize / solve utility calls (the cascade can't recover in a single cycle because every candidate returns the same overflow). The clamp caps the history to the budget before the call.
+
+### Removed
+
+- The standalone `_memory_resilience` plugin — its single extension now lives here as `history_clamp`.
+
+### Tests
+
+- `test_helpers.py`: **18/18 PASS** (was 17/17)
+- `test_extensions.py`: **5/5 PASS**
+- `test_history_clamp.py`: **29/29 PASS**
+- **Total: 52/52 PASS**
+
 ## [0.4.0] - 2026-07-26
 
 ### Added — Recall Method Patch (bug-fix layer)

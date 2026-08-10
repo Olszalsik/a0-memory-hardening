@@ -11,6 +11,7 @@ from memory_hardening.helpers import (
     memorize_watchdog, index_gc, faiss_health, auto_recover,
     rate_limiter, per_subdir_breaker, adaptive_interval,
     quarantine, memorize_canceller, embedding_swap, recall_patch,
+    history_clamp,
 )
 
 results = []
@@ -184,6 +185,27 @@ def t_recall_patch_state_shape():
     assert state["method_source"].startswith("embedded_last_known_good")
 
 
+def t_history_clamp():
+    hc = history_clamp
+    hc.reset()
+    # non-memory prompt -> skipped, message untouched
+    cd = {"system": "You are a code reviewer.", "message": "x" * 100}
+    assert hc.clamp(cd, None) == "skipped_non_memory"
+    assert cd["message"] == "x" * 100
+    # memory prompt over default budget -> clamped
+    cd = {"system": "memory.memories_sum", "message": "x" * 100_000}
+    assert hc.clamp(cd, None, inject_notice=False) == "clamped"
+    assert len(cd["message"]) == 50_000
+    state = hc.get_state()
+    assert state["clamped"] == 1
+    assert state["skipped_non_memory"] == 1
+    assert state["last_status"] == "clamped"
+    # reset clears counters
+    hc.reset()
+    assert hc.get_state()["clamped"] == 0
+    assert hc.get_state()["last_status"] == "never_run"
+
+
 for name, fn in [
     ('p1_telemetry', t_telemetry),
     ('p1_breaker', t_breaker),
@@ -203,6 +225,8 @@ for name, fn in [
     ('p32_recall_patch_idempotent', t_recall_patch_idempotent),
     ('p32_recall_patch_disabled', t_recall_patch_disabled),
     ('p32_recall_patch_state_shape', t_recall_patch_state_shape),
+    # v0.5.0
+    ('p5_history_clamp', t_history_clamp),
 ]:
     test(name, fn)
 

@@ -59,11 +59,15 @@ def uninstall() -> None:
         from usr.plugins.memory_hardening.helpers.coroutine_guard import (
             reset as cg_reset,
         )
+        from usr.plugins.memory_hardening.helpers.history_clamp import (
+            reset as hc_reset,
+        )
         mc_reset()
         es_reset()
         ai_reset()
         rl_reset()
         psb_reset()
         cg_reset()
+        hc_reset()
     except Exception as e:
         log.warning("phase 3 shutdown failed: %s", e)

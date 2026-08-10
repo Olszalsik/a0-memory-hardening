@@ -1,6 +1,6 @@
 # memory_hardening
 
-**Version:** 0.4.0 · **Plugin ID:** `memory_hardening` · **Author:** Agent Zero Plugin (memory_hardening) · **License:** MIT
+**Version:** 0.5.0 · **Plugin ID:** `memory_hardening` · **Author:** Agent Zero Plugin (memory_hardening) · **License:** MIT
 
 ## What it does
 
@@ -13,6 +13,7 @@ Wraps Agent Zero's built-in `_memory` plugin with resilience, observability, rat
 - **Thundering-retry patterns** after a slow FAISS query
 - **Coroutine leaks** from `asyncio.wait_for` cancellations during multi-hour provider outages
 - **Missing `search_memories` method** after the upstream `_memory` v1.2.0 regression (v0.4.0)
+- **ContextOverflow on memorize / solve** from the official `MAX_MSGS_CHARS = 80000` budget being too large for a 32k utility model (v0.5.0, merged from `_memory_resilience`)
 
 Zero source modifications to `/a0/plugins/_memory/` -- purely additive extension hooks.
 
@@ -47,6 +48,7 @@ That's it. Open **Settings -> Agent -> Memory Hardening** to see the live dashbo
 | 3 | 0.3.0 | 2026-07 | Embedding hot-swap (shadow validation) | OFF |
 | 4 | 0.4.0 | 2026-07-19 | Coroutine guard + UI-loop pulse | ON |
 | 4 | 0.4.0 | 2026-07-26 | **Recall method patch** (`_memory` v1.2.0 regression) | **ON** |
+| 5 | 0.5.0 | 2026-08-10 | **Memory history clamp** (merged from `_memory_resilience`) | **ON** |
 
 ## What the v0.4.0 recall_patch does
 
@@ -65,6 +67,18 @@ The recall method patch in v0.4.0:
 5. Can be toggled off from **Settings -> Agent -> Memory Hardening** if you want to use the upstream version directly
 
 Check the dashboard card **Recall Method Patch** or query `GET /api/plugins/memory_hardening/stats.recall_patch` for live status.
+
+## What the v0.5.0 history clamp does
+
+The official `_memory` memorize / solve extensions truncate the chat history to `MAX_MSGS_CHARS = 80000` before calling the utility model. That budget is too large for a 32k-context utility model and causes `ContextOverflow` errors the cascade can't recover from in a single cycle (every candidate returns the same overflow).
+
+The history clamp (merged in v0.5.0 from the former `_memory_resilience` plugin) hooks `util_model_call_before` and caps `call_data["message"]` when the system prompt matches a memory-recall / memorize / solve pattern. The budget is read in this order:
+
+1. `memory_hardening.history_clamp_max_chars_override` (if a positive int)
+2. `_model_fallback.memory_memorize_max_chars` (default 50000) — so a single setting governs both the cascade timeout budget and the memory budget
+3. `50000` (fallback default)
+
+The clamp is a safe no-op when the history is already within budget, and it never crashes the utility call (any error leaves `call_data` unchanged). Check the dashboard card **Memory History Clamp** or query `GET /api/plugins/memory_hardening/stats.history_clamp` for live counters.
 
 ## Telemetry
 
@@ -86,7 +100,8 @@ Check the dashboard card **Recall Method Patch** or query `GET /api/plugins/memo
   "embedding_swap": { ... },
   "coroutine_guard": { "ticks": {...} },
   "recall_patch": { "applied": 1, "last_status": "applied", ... },
-  "config": { ...all 52 keys... }
+  "history_clamp": { "clamped": 0, "last_budget": 50000, "last_status": "never_run", ... },
+  "config": { ...all keys... }
 }
 ```
 
@@ -112,6 +127,9 @@ Key toggles (all Phase 1+2+3+4 features default ON unless noted):
 - `embedding_swap_enabled` — shadow validation (OFF by default)
 - `coroutine_guard_enabled` — leaked-coro cleanup
 - `recall_patch_enabled` — restores missing `search_memories` (v0.4.0)
+- `history_clamp_enabled` — clamp memorize/solve util-model history (v0.5.0)
+- `history_clamp_max_chars_override` — positive-int override; null reads from `_model_fallback.memory_memorize_max_chars`
+- `history_clamp_inject_truncation_notice` — append a trim notice to the clamped history
 
 For full key listing with safe defaults, see `default_config.yaml`.
 
@@ -173,11 +191,12 @@ Run from the plugin directory:
 
 ```
 cd /a0/usr/plugins/memory_hardening
-/opt/venv/bin/python tests/test_helpers.py    # 17/17 tests
-/opt/venv/bin/python tests/test_extensions.py # 5/5 tests
+/opt/venv/bin/python tests/test_helpers.py       # 18/18 tests
+/opt/venv/bin/python tests/test_extensions.py    # 5/5 tests
+/opt/venv/bin/python tests/test_history_clamp.py # 29/29 tests
 ```
 
-Total: **22/22 tests pass**.
+Total: **52/52 tests pass**.
 
 ## Files
 
@@ -190,11 +209,11 @@ memory_hardening/
 ├── plugin.yaml         # manifest
 ├── default_config.yaml # all 52 config keys with recommended values
 ├── hooks.py            # install / uninstall lifecycle
-├── helpers/            # 14 helpers (circuit_breaker, recall_patch, ...)
-├── extensions/         # 15 extension hooks across the lifecycle
+├── helpers/            # 15 helpers (circuit_breaker, recall_patch, history_clamp, ...)
+├── extensions/         # 16 extension hooks across the lifecycle
 ├── api/                # stats.py + reset_breaker.py
 ├── webui/              # config.html dashboard
-└── tests/              # test_helpers.py + test_extensions.py
+└── tests/              # test_helpers.py + test_extensions.py + test_history_clamp.py
 ```
 
 ## Compatibility

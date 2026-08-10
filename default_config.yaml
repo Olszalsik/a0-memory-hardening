@@ -1,4 +1,4 @@
-# memory_hardening -- default configuration (v0.3.1)
+# memory_hardening -- default configuration (v0.5.0)
 #
 # All Phase 1+2+3 features are ENABLED by default with recommended values.
 # To disable a feature, set its `_enabled` key to false. Advanced tuning
@@ -166,6 +166,26 @@ embedding_swap_consensus_min: 0.8
 # runs once a minute as a safety net for any other code path that
 # does its own wait_for without going through our close helper.
 coroutine_guard_enabled: true
+
+# ============================================================
+# v0.5.0: Memory History Clamp (recommended: ON)
+# ============================================================
+# Clamps the chat-history length that the official `_memory` plugin
+# sends to the utility model during memorize / solve operations. The
+# official `MAX_MSGS_CHARS = 80000` is too generous for a 32k-context
+# utility model and causes ContextOverflow errors the cascade can't
+# recover from in a single cycle.
+#
+# Budget resolution:
+#   1. history_clamp_max_chars_override (below), if set
+#   2. _model_fallback.memory_memorize_max_chars (default 50000)
+#   3. 50000
+# So a single `_model_fallback` setting governs both layers when the
+# override here is null. Merged in from the former `_memory_resilience`
+# plugin (v1.0.0) in v0.5.0.
+history_clamp_enabled: true
+history_clamp_max_chars_override: null   # null = read from _model_fallback
+history_clamp_inject_truncation_notice: true
 
 # ============================================================
 # v0.3.2: Recall Method Patch (recommended: ON)

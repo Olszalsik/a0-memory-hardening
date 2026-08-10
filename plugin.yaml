@@ -3,11 +3,13 @@ title: Memory Hardening
 description: |
   Wraps the built-in _memory plugin with resilience, observability, and circuit-breaker
   protection against FAISS recall timeouts, leaked asyncio tasks, stuck memorize threads,
-  and unbounded index caches. Phase 4 (2026-07-19) adds a coroutine-leak guard + UI-loop
-  pulse consumed by `_model_fallback` to keep the WebSocket dispatcher alive during
-  multi-hour provider outages. Zero source modifications to /a0/plugins/_memory/ --
-  purely additive extension hooks.
-version: 0.4.0
+  and unbounded index caches. Phase 4 adds a coroutine-leak guard + UI-loop pulse consumed
+  by `_model_fallback` to keep the WebSocket dispatcher alive during multi-hour provider
+  outages. v0.5.0 merges the former `_memory_resilience` plugin: a history clamp that
+  caps the chat-history length the official `_memory` plugin sends to the utility model
+  during memorize / solve, preventing ContextOverflow errors the cascade can't recover
+  from. Zero source modifications to /a0/plugins/_memory/ -- purely additive extension hooks.
+version: 0.5.0
 author: Agent Zero Plugin (memory_hardening)
 license: MIT
 homepage: https://github.com/agent0/a0-plugins
