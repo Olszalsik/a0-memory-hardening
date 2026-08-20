@@ -100,6 +100,30 @@ Commit `eee9492` → Olszalsik/a0-memory-hardening main (7 files:
 `README.md`, `AGENTS.md`, `tests/test_extensions.py`). `config.json` is
 gitignored (sacred, not committed).
 
+### v0.5.1 follow-up (2026-08-20) — Refresh status / Reset Breaker 403 CSRF
+
+Symptom (reported live after enabling every toggle for testing): clicking
+**Refresh status** or **Reset Breaker** in the settings screen popped an error.
+Both buttons posted to the plugin's own `/api/plugins/memory_hardening/stats`
+and `/reset_breaker` endpoints with a raw `fetch()` — no `X-CSRF-Token` header.
+Those handlers inherit `ApiHandler.requires_csrf() = cls.requires_auth() = True`
+(`helpers/api.py`), and the dispatch wraps them in `csrf_protect`, so a headerless
+POST is rejected with `403 "CSRF token missing or invalid"` — before the handler
+body ever runs. This was a latent bug inherited from the pre-v0.5.1 `config.html`
+(which also used raw `fetch`); it only surfaced once someone actually clicked the
+buttons.
+
+Fix: converted the bottom `<script>` to `<script type="module">` and switched
+both calls to the framework's `fetchApi` (from `/js/api.js`), which attaches the
+`X-CSRF-Token` (fetched from `/api/csrf_token`) and auto-retries once on token
+expiry. Module-import ordering in the x-component loader
+(`webui/js/components.js`) is safe: it `await`s all module imports before
+appending the deferred body nodes, so `window.mhStats / mhBackfill / mhActiveCount`
+are still defined before Alpine evaluates `x-data="mhStats()"`. Verified
+statically: 0 raw `fetch(` calls remain, `fetchApi` used for both endpoints,
+markers preserved, `node --check` parses the module. Version stays 0.5.1 (this is
+a correction to the just-shipped settings release, not a new feature).
+
 ## See also
 
 - `plugin.yaml` — manifest (name, version, settings_sections, per_project_config, per_agent_config)

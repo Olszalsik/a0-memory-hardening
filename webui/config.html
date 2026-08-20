@@ -179,12 +179,21 @@ body{font-family:system-ui,sans-serif;padding:16px;max-width:800px;margin:0 auto
 
 </div>
 
-<script>
+<script type="module">
+import { fetchApi } from "/js/api.js";
 // Recommended defaults -- mirror default_config.yaml. Used only to seed
 // keys that are ABSENT in the loaded config (=== undefined). A present
 // `null` (e.g. history_clamp_max_chars_override) is a real value and is
 // left untouched. Core features default ON; the "Advanced Features" set
 // (quarantine / embedding_swap / agent_notice) defaults OFF.
+//
+// We use the framework's fetchApi (not raw fetch) so the X-CSRF-Token header
+// is attached -- the plugin's /stats and /reset_breaker handlers inherit
+// requires_csrf()=True, so a raw POST gets 403 "CSRF token missing or
+// invalid". fetchApi also re-fetches the token and retries once on a CSRF
+// expiry. This module is loaded before the body nodes are appended (x-
+// component loader awaits all module imports), so window.mhStats etc. are
+// defined before Alpine evaluates x-data="mhStats()".
 const MH_DEFAULTS = {
   hardening_enabled:true,
   watchdog_enabled:true, watchdog_hard_cap_sec:90, watchdog_await_cap_sec:60,
@@ -236,7 +245,11 @@ function mhStats(){
     async refresh(){
       this.busy=true; this.msg="";
       try{
-        const r=await fetch("/api/plugins/memory_hardening/stats",{method:"POST",body:"{}"});
+        const r=await fetchApi("/api/plugins/memory_hardening/stats",{
+          method:"POST",
+          headers:{"Content-Type":"application/json"},
+          body:"{}",
+        });
         const j=await r.json();
         this.stats=j;
         this.lastUpdate=new Date().toLocaleTimeString();
@@ -250,7 +263,11 @@ function mhStats(){
       if(!confirm("Reset breaker?")) return;
       this.busy=true; this.msg="";
       try{
-        const r=await fetch("/api/plugins/memory_hardening/reset_breaker",{method:"POST",body:"{}"});
+        const r=await fetchApi("/api/plugins/memory_hardening/reset_breaker",{
+          method:"POST",
+          headers:{"Content-Type":"application/json"},
+          body:"{}",
+        });
         const j=await r.json();
         this.msg=j.ok?"breaker reset":("error: "+(j.error||JSON.stringify(j)));
         this.msgKind=j.ok?"ok":"err";
