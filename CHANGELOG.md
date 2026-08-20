@@ -2,6 +2,32 @@
 
 All notable changes to `memory_hardening` are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2026-08-20
+
+### Fixed — settings did not save (regression after the v2.9 framework merge)
+
+The settings screen ticked boxes but **nothing persisted**: on reopen every toggle reverted. Root cause: `webui/config.html` ran its own Alpine component (`alpineState()`) whose custom Save button POSTed `action: "config_set"` to `/api/plugins`. The v2.9 framework's `api/plugins.py` only handles `get_config` / `save_config` — there is **no `config_set` action**, so the Save button got a `400 Unknown action` and wrote nothing. The official footer Save button (which does work, via `save_config`) bound to a *different* object (`pluginSettingsPrototype.settings`) that the checkboxes never touched, so it couldn't save your ticks either.
+
+- **`webui/config.html`** — migrated to the official plugin-settings store (the same pattern `_chat_naming` / `_model_fallback` use):
+  - Checkboxes now bind `x-model="config.<key>"` where `config` is the parent modal scope's getter for `pluginSettingsPrototype.settings` — the **same object** the footer Save serializes via `save_config` → `config.json`. Toggles now persist.
+  - `config` is referenced directly (not captured) so **Reset to default** — which replaces the settings object — is reflected live.
+  - `mhBackfill(config)` seeds recommended defaults for keys ABSENT in the loaded config (core features ON, the "Advanced Features" set OFF). A present `null` (e.g. `history_clamp_max_chars_override`) is a real value and is left untouched.
+  - Removed the broken custom Save button; the footer **Save** + **Reset to default** buttons handle persistence. Kept the read-only live-status panel (polls `/stats`), the **Refresh status** and **Reset Breaker** buttons.
+  - Folded the orphaned vanilla-DOM "Recall Method Patch" card into the Alpine tree (`x-model="config.recall_patch_enabled"`) so it saves like every other toggle, with live status from `stats.recall_patch`.
+- **`plugin.yaml`** — version 0.5.0 → 0.5.1; `webui/config.html` title, `AGENTS.md`, `README.md` version lines updated; `tests/test_extensions.py` version assertion updated to 0.5.1.
+- **`api/stats.py`** — aligned the `/stats` `config` payload's Phase-3 defaults (`per_subdir_breaker_enabled`, `adaptive_interval_enabled`, `memorize_hard_cancel_enabled`) with `default_config.yaml` (`False` → `True`); they previously contradicted the recommended defaults. Cosmetic after the UI migration (the toggles no longer read this payload) but removes the latent inconsistency.
+
+### Default state (unchanged, now actually reachable)
+
+`default_config.yaml` already encodes "core recommended ON, advanced extras OFF" (Phase 1-4 features ON; quarantine / embedding-swap / agent-notice OFF). The bug was that you could never save a *change* to it. After this fix, **Reset to default** loads that baseline and **Save** keeps it.
+
+### Tests
+
+- `test_extensions.py::t_webui` still passes — it only checks `config.html` starts with `<html>` and contains the phase-3 marker strings, all preserved.
+- `test_extensions.py::t_manifest` updated to assert version `0.5.1`.
+- No Python helper/extension changed; `test_helpers.py` / `test_history_clamp.py` unaffected.
+- NOTE: the test files hardcode `/a0/...` container paths, so they only run inside the container (host is Windows at `E:\...`). 28/29 `test_history_clamp` cases pass on host; the 1 failure is a `/a0` path-resolution issue, not a regression.
+
 ## [0.5.0] - 2026-08-10
 
 ### Added — Memory History Clamp (merged from `_memory_resilience`)

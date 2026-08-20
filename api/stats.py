@@ -90,9 +90,10 @@ class Stats(ApiHandler):
                 "dashboard_enabled": cfg.get("dashboard_enabled", True),
                 # Phase 3
                 "rate_limiter_enabled": cfg.get("rate_limiter_enabled", True),
-                "per_subdir_breaker_enabled": cfg.get("per_subdir_breaker_enabled", False),
-                "adaptive_interval_enabled": cfg.get("adaptive_interval_enabled", False),
-                "memorize_hard_cancel_enabled": cfg.get("memorize_hard_cancel_enabled", False),
+                # Phase 3 defaults align with default_config.yaml (recommended: ON)
+                "per_subdir_breaker_enabled": cfg.get("per_subdir_breaker_enabled", True),
+                "adaptive_interval_enabled": cfg.get("adaptive_interval_enabled", True),
+                "memorize_hard_cancel_enabled": cfg.get("memorize_hard_cancel_enabled", True),
                 "quarantine_enabled": cfg.get("quarantine_enabled", False),
                 "embedding_swap_enabled": cfg.get("embedding_swap_enabled", False),
                 # v0.3.2

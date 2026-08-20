@@ -9,7 +9,7 @@ description: |
   caps the chat-history length the official `_memory` plugin sends to the utility model
   during memorize / solve, preventing ContextOverflow errors the cascade can't recover
   from. Zero source modifications to /a0/plugins/_memory/ -- purely additive extension hooks.
-version: 0.5.0
+version: 0.5.1
 author: Agent Zero Plugin (memory_hardening)
 license: MIT
 homepage: https://github.com/agent0/a0-plugins

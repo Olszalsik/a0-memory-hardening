@@ -62,7 +62,7 @@ def t_api_handlers():
 def t_manifest():
     import yaml
     m = yaml.safe_load(open('/a0/usr/plugins/memory_hardening/plugin.yaml'))
-    assert m['version'] == '0.5.0'
+    assert m['version'] == '0.5.1'
     cfg = yaml.safe_load(open('/a0/usr/plugins/memory_hardening/default_config.yaml'))
     # Check Phase 3 keys
     for k in ['rate_limiter_enabled', 'per_subdir_breaker_enabled',

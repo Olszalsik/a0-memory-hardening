@@ -2,7 +2,7 @@
 
 > Wraps the built-in `_memory` plugin with resilience, observability, and rate-limiting. Adds circuit breakers per memory subdir, embedding-swap on failure, exponential backoff with adaptive interval, per-process watchdog tasks, and a memory-history clamp.
 
-**Version:** 0.5.0 · **Plugin ID:** `memory_hardening`
+**Version:** 0.5.1 · **Plugin ID:** `memory_hardening`
 
 ## Purpose
 

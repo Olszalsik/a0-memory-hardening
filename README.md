@@ -1,6 +1,6 @@
 # memory_hardening
 
-**Version:** 0.5.0 · **Plugin ID:** `memory_hardening` · **Author:** Agent Zero Plugin (memory_hardening) · **License:** MIT
+**Version:** 0.5.1 · **Plugin ID:** `memory_hardening` · **Author:** Agent Zero Plugin (memory_hardening) · **License:** MIT
 
 ## What it does
 
