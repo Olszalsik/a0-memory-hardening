@@ -1,6 +1,6 @@
 # memory_hardening
 
-**Version:** 0.5.1 · **Plugin ID:** `memory_hardening` · **Author:** Agent Zero Plugin (memory_hardening) · **License:** MIT
+**Version:** 0.5.2 · **Plugin ID:** `memory_hardening` · **Author:** Agent Zero Plugin (memory_hardening) · **License:** MIT
 
 ## What it does
 
@@ -49,6 +49,7 @@ That's it. Open **Settings -> Agent -> Memory Hardening** to see the live dashbo
 | 4 | 0.4.0 | 2026-07-19 | Coroutine guard + UI-loop pulse | ON |
 | 4 | 0.4.0 | 2026-07-26 | **Recall method patch** (`_memory` v1.2.0 regression) | **ON** |
 | 5 | 0.5.0 | 2026-08-10 | **Memory history clamp** (merged from `_memory_resilience`) | **ON** |
+| 5 | 0.5.2 | 2026-08-26 | **Recall-wait TimeoutError guard** (wraps `RecallWait.execute`) | **ON** |
 
 ## What the v0.4.0 recall_patch does
 

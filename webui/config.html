@@ -155,6 +155,15 @@ body{font-family:system-ui,sans-serif;padding:16px;max-width:800px;margin:0 auto
 </div>
 
 <div class="mh-card">
+<h3>Recall-Wait TimeoutError Guard <span class="mh-badge" :class="config.recall_wait_guard_enabled ? '' : 'off'" x-text="config.recall_wait_guard_enabled ? 'ON' : 'OFF'"></span></h3>
+<p>Wraps <code>RecallWait.execute</code> so the 30s recall <code>asyncio.TimeoutError</code> (from <code>asyncio.wait_for</code> in <code>_50_recall_memories</code>) can no longer propagate out of <code>_91_recall_wait</code> and kill the agent monologue loop. Memory recall is best-effort; a timeout must not crash the agent. Wraps (does not replace) the method, so it survives upstream changes. Recommended: ON.</p>
+<div class="mh-toggle"><label>Enable recall-wait guard</label><input type="checkbox" x-model="config.recall_wait_guard_enabled"></div>
+<div class="mh-stats" x-show="stats && stats.recall_wait_guard" style="margin-top:8px;">
+<div>Last status: <span class="v" x-text="stats?.recall_wait_guard?.last_status || '-'"></span> | Applied: <span class="v" x-text="stats?.recall_wait_guard?.applied || 0"></span> | Timeouts caught: <span class="v" x-text="stats?.recall_wait_guard?.timeouts_caught || 0"></span> | Errors caught: <span class="v" x-text="stats?.recall_wait_guard?.errors_caught || 0"></span></div>
+</div>
+</div>
+
+<div class="mh-card">
 <h3>Advanced Features (OFF by default)</h3>
 <p>Enable only if you know you need them.</p>
 <div class="mh-toggle"><label>Quarantine (auto-archive stale indexes)</label><input type="checkbox" x-model="config.quarantine_enabled"></div>
@@ -215,6 +224,7 @@ const MH_DEFAULTS = {
   coroutine_guard_enabled:true,
   history_clamp_enabled:true, history_clamp_max_chars_override:null, history_clamp_inject_truncation_notice:true,
   recall_patch_enabled:true,
+  recall_wait_guard_enabled:true,
 };
 
 // Seed absent keys directly on the (current) settings object. Called from

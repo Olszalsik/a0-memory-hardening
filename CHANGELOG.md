@@ -2,6 +2,23 @@
 
 All notable changes to `memory_hardening` are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.2] - 2026-08-26
+
+### Added — recall-wait `TimeoutError` guard (stops the 30s recall timeout from killing the agent loop)
+
+The built-in `_memory` plugin's `_91_recall_wait.py` does `await task` with no `try/except`, where `task = asyncio.wait_for(search_memories(...), timeout=SEARCH_TIMEOUT=30)`. When the 30s budget fires, `asyncio.TimeoutError` propagates out of `RecallWait.execute` → `prepare_prompt` → `monologue` and tears down the whole agent loop. Historical logs in this install show ~1268 such crashes. `memory_hardening` already runtime-patches `search_memories` (the v1.2.0 regression, `recall_patch`) but did **not** guard the outer `await task` — that gap remained.
+
+- **`helpers/recall_wait_guard.py`** — `apply_recall_wait_guard(enabled=True)` **wraps** (does not replace) `RecallWait.execute` with a `safe_execute` wrapper that calls the original inside `try/except`. This is resilient to upstream changes to the method body (unlike `recall_patch`, which only acts when the method is *missing* — here the method is present but unguarded). `asyncio.CancelledError` is re-raised (never swallow loop shutdown); `asyncio.TimeoutError` is caught + logged (memory recall is best-effort); a generic `Exception` safety net catches any other recall-path failure with a loud warning so real bugs stay visible. Idempotent (`_mh_wait_guarded` flag); reversible (`enabled=False` restores the original). Telemetry via `get_state()` / `reset_state()`.
+- **`extensions/python/message_loop_prompts_after/_06_recall_wait_guard.py`** — `RecallWaitGuard` extension at priority 6 (after `_05_recall_method_patch` at 5, before `_50_recall_memories` at 50 and `_91_recall_wait` at 91). Reads `recall_wait_guard_enabled` from config and applies the guard each loop iteration — idempotent, zero-cost after the first wrap.
+- **Interaction with telemetry/breaker:** the downstream `_95_recall_telemetry` observer (priority 95) still inspects `task.exception()`, sees the `TimeoutError`, classifies the outcome as `timeout`, and feeds the circuit breaker — so backoff still happens. This guard only keeps the loop alive long enough for that to happen.
+- **`api/stats.py`** — exposes `recall_wait_guard` state + a `recall_wait_guard_enabled` config key.
+- **`default_config.yaml`** — adds `recall_wait_guard_enabled: true` (recommended: ON) with documentation.
+- **`webui/config.html`** — adds a "Recall-Wait TimeoutError Guard" toggle card with live stats (timeouts caught / errors caught / last status).
+- **`hooks.py`** — `uninstall()` now restores the original `RecallWait.execute` (un-guard) and resets the guard's telemetry state.
+- **`tests/test_extensions.py`** — extension count 16 → 17; version assertion 0.5.1 → 0.5.2.
+- **`tests/test_recall_wait_guard.py`** — new dedicated suite (7/7): apply-wraps, timeout-caught, cancelled-reraised, generic-exception-caught, idempotent, disable-restores, state-shape. Integration smoke-tested against the real `_memory.RecallWait` class (apply / idempotent / restore all green).
+- Version 0.5.1 → 0.5.2 across `plugin.yaml`, `AGENTS.md`, `CHANGELOG.md`, `README.md`, `default_config.yaml`, `webui/config.html`, `api/stats.py`, `hooks.py`, `tests/test_extensions.py`. `config.json` is gitignored (sacred, not committed).
+
 ## [0.5.1] - 2026-08-20
 
 ### Fixed — settings did not save (regression after the v2.9 framework merge)

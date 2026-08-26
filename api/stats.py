@@ -18,6 +18,7 @@ from usr.plugins.memory_hardening.helpers import (
     rate_limiter as rl,
     quarantine as qu,
     recall_patch as rp,
+    recall_wait_guard as rwg,
     telemetry as tm,
     watchdog as wd,
 )
@@ -74,6 +75,8 @@ class Stats(ApiHandler):
             },
             # v0.3.2 (2026-07-26) — recall method patch for _memory v1.2.0 regression
             "recall_patch": rp.get_state(),
+            # v0.5.2 (2026-08-26) — recall-wait TimeoutError guard
+            "recall_wait_guard": rwg.get_state(),
             # v0.5.0 (2026-08-10) — memory history clamp (merged from _memory_resilience)
             "history_clamp": hc.get_state(),
             "config": {
@@ -98,6 +101,8 @@ class Stats(ApiHandler):
                 "embedding_swap_enabled": cfg.get("embedding_swap_enabled", False),
                 # v0.3.2
                 "recall_patch_enabled": cfg.get("recall_patch_enabled", True),
+                # v0.5.2
+                "recall_wait_guard_enabled": cfg.get("recall_wait_guard_enabled", True),
                 # v0.5.0
                 "history_clamp_enabled": cfg.get("history_clamp_enabled", True),
             },

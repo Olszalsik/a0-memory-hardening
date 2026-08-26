@@ -8,8 +8,10 @@ description: |
   outages. v0.5.0 merges the former `_memory_resilience` plugin: a history clamp that
   caps the chat-history length the official `_memory` plugin sends to the utility model
   during memorize / solve, preventing ContextOverflow errors the cascade can't recover
-  from. Zero source modifications to /a0/plugins/_memory/ -- purely additive extension hooks.
-version: 0.5.1
+  from. v0.5.2 adds a recall-wait guard that wraps `RecallWait.execute` so the 30s recall
+  `asyncio.TimeoutError` can no longer propagate and kill the agent monologue loop.
+  Zero source modifications to /a0/plugins/_memory/ -- purely additive extension hooks.
+version: 0.5.2
 author: Agent Zero Plugin (memory_hardening)
 license: MIT
 homepage: https://github.com/agent0/a0-plugins

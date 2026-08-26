@@ -62,6 +62,10 @@ def uninstall() -> None:
         from usr.plugins.memory_hardening.helpers.history_clamp import (
             reset as hc_reset,
         )
+        from usr.plugins.memory_hardening.helpers.recall_wait_guard import (
+            apply_recall_wait_guard as rwg_restore,
+            reset_state as rwg_reset,
+        )
         mc_reset()
         es_reset()
         ai_reset()
@@ -69,5 +73,11 @@ def uninstall() -> None:
         psb_reset()
         cg_reset()
         hc_reset()
+        # Restore the original RecallWait.execute (un-guard) and reset telemetry.
+        try:
+            rwg_restore(enabled=False)
+            rwg_reset()
+        except Exception:
+            pass
     except Exception as e:
         log.warning("phase 3 shutdown failed: %s", e)

@@ -10,7 +10,7 @@ def check(name, fn):
     except Exception as e:
         results.append((name, f'FAIL: {e}'))
 
-# All 16 extension files (Phase 1+2+3+4+5)
+# All 17 extension files (Phase 1+2+3+4+5)
 all_ext = [
     ('message_loop_start/_10_watchdog_init.py', 'WatchdogInit'),
     ('message_loop_start/_20_circuit_breaker.py', 'CircuitBreakerGate'),
@@ -22,6 +22,8 @@ all_ext = [
     ('message_loop_prompts_after/_95_recall_telemetry.py', 'RecallTelemetry'),
     # v0.3.2
     ('message_loop_prompts_after/_05_recall_method_patch.py', 'RecallMethodPatch'),
+    # v0.5.2
+    ('message_loop_prompts_after/_06_recall_wait_guard.py', 'RecallWaitGuard'),
     ('job_loop/_30_memory_health.py', 'MemoryHealth'),
     ('job_loop/_40_index_gc.py', 'IndexGC'),
     ('job_loop/_50_quarantine.py', 'QuarantineScan'),
@@ -43,7 +45,7 @@ def t_all_extensions():
                 for b in n.bases:
                     if isinstance(b, ast.Name) and b.id == 'Extension':
                         found.append(expected)
-    assert len(found) == 16, f'expected 16, got {len(found)}: {found}'
+    assert len(found) == 17, f'expected 17, got {len(found)}: {found}'
 
 def t_api_handlers():
     for f, expected in [('stats.py', 'Stats'), ('reset_breaker.py', 'ResetBreaker')]:
@@ -62,7 +64,7 @@ def t_api_handlers():
 def t_manifest():
     import yaml
     m = yaml.safe_load(open('/a0/usr/plugins/memory_hardening/plugin.yaml'))
-    assert m['version'] == '0.5.1'
+    assert m['version'] == '0.5.2'
     cfg = yaml.safe_load(open('/a0/usr/plugins/memory_hardening/default_config.yaml'))
     # Check Phase 3 keys
     for k in ['rate_limiter_enabled', 'per_subdir_breaker_enabled',

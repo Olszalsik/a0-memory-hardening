@@ -201,3 +201,23 @@ history_clamp_inject_truncation_notice: true
 # If a future _memory update restores the method, this patch becomes a
 # no-op and the counter shows "already_present" in /stats.
 recall_patch_enabled: true
+
+# ============================================================
+# v0.5.2: Recall-Wait TimeoutError Guard (recommended: ON)
+# ============================================================
+# The built-in _memory plugin schedules recall as
+#   asyncio.wait_for(search_memories(...), timeout=SEARCH_TIMEOUT=30)
+# and _91_recall_wait later does `await task` with no try/except. When the
+# 30s budget fires, asyncio.TimeoutError propagates out of the message-loop
+# prompt phase and kills the whole agent monologue loop (~1268 historical
+# crashes in this install's logs).
+#
+# This guard wraps (not replaces) RecallWait.execute so the TimeoutError is
+# caught and logged instead of crashing the loop. Memory recall is
+# best-effort: a timeout must not take the agent down. The downstream
+# _95_recall_telemetry observer still sees the timed-out task and feeds the
+# circuit breaker, so the breaker still learns to back off.
+#
+# Wrapping (not replacing) keeps this resilient to upstream changes to the
+# RecallWait.execute body. Set to false to restore the original execute.
+recall_wait_guard_enabled: true
