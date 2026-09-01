@@ -26,7 +26,7 @@ class RecallMethodPatch(Extension):
 
         enabled = config.get("recall_patch_enabled", True)
 
-        result = recall_patch.apply_recall_patch(enabled=enabled)
+        result = recall_patch.apply_recall_patch(enabled=enabled, agent=self.agent)
 
         if result.get("last_status") == "applied" and result.get("applied") == 1:
             try:

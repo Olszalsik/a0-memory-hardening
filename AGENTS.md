@@ -176,3 +176,47 @@ Version 0.5.1 → 0.5.2 across `plugin.yaml`, `AGENTS.md`, `CHANGELOG.md`,
 - `README.md` — user-facing docs (what the plugin does from a user's perspective)
 - `helpers/history_clamp.py` — the merged clamp logic (was `_memory_resilience/extensions/.../​_10_clamp_memory_history.py`)
 - Framework references: `helpers/plugins.py` (lifecycle), `helpers/api.py` (API dispatch), `helpers/ui_server.py` (asset serving)
+
+## v0.5.3 — recall guard must bind the FRAMEWORK class (2026-09-01)
+
+**Live failure found 2026-09-01:** the v0.5.2 recall-wait guard never fired
+in production. 2026-08-27 crash tracebacks (`_91_recall_wait.py line 30,
+await task`) show NO `safe_execute` frame: the dispatcher kept calling the
+unwrapped class. Telemetry said "applied"; tests passed; the wrap landed on
+a ghost.
+
+Root cause: the framework loads extension files via
+`helpers.modules.import_module` — a SYNTHETIC module named after the file
+basename (e.g. `"_91_recall_wait"`), never registered in `sys.modules`.
+`apply_recall_wait_guard` imported `RecallWait` via the canonical dotted
+path, creating a SECOND module + class object that
+`call_extensions_async` (`cls(agent=agent).execute(...)`) never touches.
+Canonical-import patches on extension-point classes are structurally
+silent no-ops in this framework.
+
+Fix (v0.5.3):
+- NEW `helpers/extension_class.py` — `resolve_extension_class()` resolves
+  the class through `helpers.extension._get_extension_classes` (the exact
+  cached list the dispatcher iterates), matched by class name +
+  `__module__.endswith(basename)`; canonical import only as a bare-test
+  fallback. Never patch an extension-point class via a dotted-path import.
+- `recall_wait_guard.apply_recall_wait_guard(enabled, agent=None)` +
+  `recall_patch.apply_recall_patch(enabled, agent=None)` use it; both
+  extensions pass `self.agent`. New telemetry key `last_class_module`
+  (verify via `/stats`: must be the synthetic `"_91_recall_wait"`, not the
+  dotted path).
+- `tests/test_recall_wait_guard.py` (8/8): fakes now set
+  `__module__ = "_91_recall_wait"` and the dispatcher class list is
+  monkeypatched; new `dispatcher_class_wins` regression test asserts the
+  framework class is wrapped, NOT the canonical phantom.
+
+Related: the Jul-2026 disk-edit hardening of core
+`plugins/_memory/.../_91_recall_wait.py` was reverted by the v2.9/v2.10/
+v2.11 upstream merges — this plugin-level guard is the merge-proof
+replacement, which is why binding it correctly matters. Upstream v2.11
+additionally handles the 30s `TimeoutError` inside the recall task itself
+(`search_and_cache` catches it), so the guard is now defense-in-depth for
+`CancelledError` paths and future upstream regressions.
+
+The same defect in `_model_fallback`'s memory recall patches was fixed in
+parallel (v2.8.2).

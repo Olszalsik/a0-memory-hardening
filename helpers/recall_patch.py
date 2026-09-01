@@ -170,8 +170,16 @@ async def search_memories(self, log_item, loop_data, **kwargs):
     return await _do_search_memories(self, log_item, loop_data, **kwargs)
 
 
-def apply_recall_patch(enabled=True):
+def apply_recall_patch(enabled=True, agent=None):
     """Apply the search_memories method patch to RecallMemories if needed.
+
+    Resolves the class through the dispatcher's own list
+    (``helpers.extension._get_extension_classes``) -- the framework loads
+    extension files as synthetic modules, so a canonical import yields a
+    phantom class that is never instantiated (patching it is a silent
+    no-op; see helpers/extension_class.py). Upstream currently defines
+    ``search_memories`` itself, so this is dormant ("already_present"),
+    but it must target the real class to work if upstream ever drops it.
 
     Returns a status dict with counts and last_status. Safe to call
     multiple times; idempotent. If the method already exists on the
@@ -184,9 +192,19 @@ def apply_recall_patch(enabled=True):
     STATE["patch_attempts"] += 1
 
     try:
-        from plugins._memory.extensions.python.message_loop_prompts_after._50_recall_memories import (
-            RecallMemories,
+        from usr.plugins.memory_hardening.helpers.extension_class import (
+            resolve_extension_class,
         )
+
+        RecallMemories = resolve_extension_class(
+            agent,
+            "message_loop_prompts_after",
+            "RecallMemories",
+            "_50_recall_memories",
+            "plugins._memory.extensions.python.message_loop_prompts_after._50_recall_memories",
+        )
+        if RecallMemories is None:
+            raise ImportError("RecallMemories not resolvable")
     except ImportError as e:
         STATE["import_errors"] += 1
         STATE["last_error"] = str(e)

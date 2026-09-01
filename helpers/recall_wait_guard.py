@@ -55,6 +55,7 @@ STATE = {
     "patch_attempts": 0,
     "last_status": "never_run",
     "last_error": "",
+    "last_class_module": "",
 }
 
 
@@ -66,20 +67,31 @@ _GUARDED_FLAG = "_mh_wait_guarded"
 _ORIGINAL_ATTR = "_mh_original_execute"
 
 
-def apply_recall_wait_guard(enabled: bool = True) -> dict:
+def apply_recall_wait_guard(enabled: bool = True, agent=None) -> dict:
     """Wrap ``RecallWait.execute`` so a recall timeout cannot kill the loop.
 
     Idempotent. When ``enabled`` is False and the guard is currently
-    active, the original ``execute`` is restored. Returns a telemetry
-    snapshot.
+    active, the original ``execute`` is restored. ``agent`` (optional)
+    lets the resolver use the dispatcher's per-agent class list -- the
+    same list ``call_extensions_async`` iterates, so the wrap lands on
+    the class the framework actually instantiates (v0.5.2 wrapped the
+    canonical-import phantom class and never fired live). Returns a
+    telemetry snapshot.
     """
     STATE["patch_attempts"] += 1
 
     try:
-        from plugins._memory.extensions.python.message_loop_prompts_after._91_recall_wait import (
-            RecallWait,
+        from usr.plugins.memory_hardening.helpers.extension_class import (
+            resolve_extension_class,
         )
-        from agent import LoopData
+
+        RecallWait = resolve_extension_class(
+            agent,
+            "message_loop_prompts_after",
+            "RecallWait",
+            "_91_recall_wait",
+            "plugins._memory.extensions.python.message_loop_prompts_after._91_recall_wait",
+        )
     except Exception as e:
         STATE["import_errors"] += 1
         STATE["last_error"] = repr(e)[:512]
@@ -90,6 +102,14 @@ def apply_recall_wait_guard(enabled: bool = True) -> dict:
         STATE["import_errors"] += 1
         STATE["last_status"] = "class_not_found"
         return _snapshot()
+
+    STATE["last_class_module"] = str(getattr(RecallWait, "__module__", ""))
+
+    try:
+        from agent import LoopData
+    except Exception:
+        class LoopData:  # bare-env fallback: wrapper default only
+            pass
 
     # --- disable / restore path -------------------------------------------
     if not enabled:

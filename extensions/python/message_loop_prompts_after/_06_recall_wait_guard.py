@@ -32,7 +32,9 @@ class RecallWaitGuard(Extension):
 
         enabled = config.get("recall_wait_guard_enabled", True)
 
-        result = recall_wait_guard.apply_recall_wait_guard(enabled=enabled)
+        result = recall_wait_guard.apply_recall_wait_guard(
+            enabled=enabled, agent=self.agent
+        )
 
         status = result.get("last_status")
         if status == "applied" and result.get("applied") == 1:

@@ -50,6 +50,10 @@ def _install_fake_recalls(execute_fn):
     class RecallWait:
         pass
 
+    # Mimic the framework's synthetic loader: extension files are loaded
+    # with the file basename as module name (never in sys.modules). The
+    # resolver must pick THIS class via the dispatcher list.
+    RecallWait.__module__ = "_91_recall_wait"
     RecallWait.execute = execute_fn
     mod.RecallWait = RecallWait
     sys.modules[
@@ -67,6 +71,38 @@ def _install_fake_recalls(execute_fn):
         sys.modules["agent"] = am
 
     return RecallWait
+
+
+_EXT_PATCH = {"orig": None}
+
+
+def _patch_dispatcher(cls_list):
+    """Route helpers.extension._get_extension_classes to a fake class list.
+
+    Simulates the dispatcher's authoritative class list so the resolver
+    binds to the framework-loaded class (the v0.5.2 live failure was that
+    it wrapped a canonical-import phantom instead).
+    """
+    try:
+        from helpers import extension as ext
+    except Exception:
+        return False
+    if _EXT_PATCH["orig"] is None:
+        _EXT_PATCH["orig"] = ext._get_extension_classes
+    ext._get_extension_classes = (
+        lambda point, agent=None, **kw: cls_list
+        if point == "message_loop_prompts_after"
+        else _EXT_PATCH["orig"](point, agent=agent, **kw)
+    )
+    return True
+
+
+def _unpatch_dispatcher():
+    if _EXT_PATCH["orig"] is not None:
+        from helpers import extension as ext
+
+        ext._get_extension_classes = _EXT_PATCH["orig"]
+        _EXT_PATCH["orig"] = None
 
 
 class _FakeLog:
@@ -106,6 +142,7 @@ def t_apply_wraps():
         raise asyncio.TimeoutError("30s")
 
     RW = _install_fake_recalls(boom)
+    _patch_dispatcher([RW])
     rwg = _reload_helper()
     rwg.reset_state()
     r = rwg.apply_recall_wait_guard(enabled=True)
@@ -119,6 +156,7 @@ def t_timeout_caught():
         raise asyncio.TimeoutError("30s budget")
 
     RW = _install_fake_recalls(boom)
+    _patch_dispatcher([RW])
     rwg = _reload_helper()
     rwg.reset_state()
     rwg.apply_recall_wait_guard(enabled=True)
@@ -137,6 +175,7 @@ def t_cancelled_reraised():
         raise asyncio.CancelledError()
 
     RW = _install_fake_recalls(boom)
+    _patch_dispatcher([RW])
     rwg = _reload_helper()
     rwg.reset_state()
     rwg.apply_recall_wait_guard(enabled=True)
@@ -158,6 +197,7 @@ def t_generic_exception_caught():
         raise RuntimeError("faiss exploded")
 
     RW = _install_fake_recalls(boom)
+    _patch_dispatcher([RW])
     rwg = _reload_helper()
     rwg.reset_state()
     rwg.apply_recall_wait_guard(enabled=True)
@@ -175,6 +215,7 @@ def t_idempotent():
         return "ok"
 
     RW = _install_fake_recalls(ok)
+    _patch_dispatcher([RW])
     rwg = _reload_helper()
     rwg.reset_state()
     r1 = rwg.apply_recall_wait_guard(enabled=True)
@@ -189,6 +230,7 @@ def t_disable_restores():
         return "orig"
 
     RW = _install_fake_recalls(original)
+    _patch_dispatcher([RW])
     rwg = _reload_helper()
     rwg.reset_state()
     rwg.apply_recall_wait_guard(enabled=True)
@@ -222,6 +264,42 @@ def t_state_shape():
     assert rwg.STATE["timeouts_caught"] == 0
 
 
+def t_dispatcher_class_wins():
+    """Regression for the v0.5.2 live failure: when the dispatcher's class
+    list contains a DIFFERENT class object than the canonical import, the
+    dispatcher's class must be the one wrapped (it is the one the
+    framework instantiates)."""
+    import asyncio as _aio
+
+    async def canonical_boom(self, loop_data=None, **kw):
+        raise _aio.TimeoutError("canonical phantom")
+
+    canonical = _install_fake_recalls(canonical_boom)
+
+    class RecallWait:  # must match the real class NAME the matcher looks for
+        pass
+
+    async def framework_boom(self, loop_data=None, **kw):
+        raise _aio.TimeoutError("framework class")
+
+    RecallWait.__module__ = "_91_recall_wait"
+    RecallWait.execute = framework_boom
+
+    _patch_dispatcher([RecallWait])
+    rwg = _reload_helper()
+    rwg.reset_state()
+    r = rwg.apply_recall_wait_guard(enabled=True)
+    assert r["last_status"] == "applied", r
+    # the FRAMEWORK class got the wrap, not the canonical phantom
+    assert getattr(RecallWait, "_mh_wait_guarded", False) is True
+    assert getattr(canonical, "_mh_wait_guarded", False) is False
+    assert rwg.STATE["last_class_module"] == "_91_recall_wait", rwg.STATE
+    inst = RecallWait()
+    inst.agent = _FakeAgent()
+    _aio.run(inst.execute())  # must not raise
+    assert rwg.STATE["timeouts_caught"] == 1, rwg.STATE
+
+
 for name, fn in [
     ("apply_wraps", t_apply_wraps),
     ("timeout_caught", t_timeout_caught),
@@ -230,6 +308,7 @@ for name, fn in [
     ("idempotent", t_idempotent),
     ("disable_restores", t_disable_restores),
     ("state_shape", t_state_shape),
+    ("dispatcher_class_wins", t_dispatcher_class_wins),
 ]:
     check(name, fn)
 
@@ -242,4 +321,5 @@ for n, r in results:
     print(f"  {n:28s} {r}")
 print("=" * 70)
 print(f"{passed}/{total} tests passed")
+_unpatch_dispatcher()
 sys.exit(0 if passed == total else 1)
