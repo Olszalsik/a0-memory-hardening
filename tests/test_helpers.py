@@ -1,11 +1,17 @@
 # Test suite for memory_hardening helpers (v0.3.0)
-# Run from the plugin directory:
+# Run standalone from the plugin directory:
 #   python tests/test_helpers.py
-# Or from anywhere with the right sys.path:
-#   python /a0/usr/plugins/memory_hardening/tests/test_helpers.py
+# or with pytest from the repo root:
+#   pytest usr/plugins/memory_hardening/tests/
 import sys, os, asyncio, time, ast
-sys.path.insert(0, '/a0')
-sys.path.insert(0, '/a0/usr/plugins')
+from pathlib import Path
+
+# Repo/install root: derived from this file's location
+# (<root>/usr/plugins/memory_hardening/tests/ -> 4 levels up), which works
+# both inside the container (/a0) and on the host.
+_REPO_ROOT = str(Path(__file__).resolve().parents[4])
+sys.path.insert(0, _REPO_ROOT)
+sys.path.insert(0, str(Path(_REPO_ROOT) / 'usr' / 'plugins'))
 from memory_hardening.helpers import (
     telemetry, watchdog, circuit_breaker,
     memorize_watchdog, index_gc, faiss_health, auto_recover,
@@ -16,7 +22,7 @@ from memory_hardening.helpers import (
 
 results = []
 
-def test(name, fn):
+def _run_case(name, fn):
     try:
         fn()
         results.append((name, 'PASS'))
@@ -206,7 +212,7 @@ def t_history_clamp():
     assert hc.get_state()["last_status"] == "never_run"
 
 
-for name, fn in [
+_CASES = [
     ('p1_telemetry', t_telemetry),
     ('p1_breaker', t_breaker),
     ('p1_watchdog', t_watchdog),
@@ -227,15 +233,26 @@ for name, fn in [
     ('p32_recall_patch_state_shape', t_recall_patch_state_shape),
     # v0.5.0
     ('p5_history_clamp', t_history_clamp),
-]:
-    test(name, fn)
+]
 
-print('=' * 70)
-total = 0; passed = 0
-for n, r in results:
-    total += 1
-    if r.startswith('PASS'): passed += 1
-    print(f'  {n:30s} {r}')
-print('=' * 70)
-print(f'{passed}/{total} tests passed')
-sys.exit(0 if passed == total else 1)
+if __name__ == '__main__':
+    # Standalone runner: python tests/test_helpers.py
+    for name, fn in _CASES:
+        _run_case(name, fn)
+
+    print('=' * 70)
+    total = 0; passed = 0
+    for n, r in results:
+        total += 1
+        if r.startswith('PASS'): passed += 1
+        print(f'  {n:30s} {r}')
+    print('=' * 70)
+    print(f'{passed}/{total} tests passed')
+    sys.exit(0 if passed == total else 1)
+else:
+    # pytest: expose each case as a real test (exceptions propagate).
+    import pytest
+
+    @pytest.mark.parametrize("name,fn", _CASES, ids=[n for n, _ in _CASES])
+    def test_case(name, fn):
+        fn()

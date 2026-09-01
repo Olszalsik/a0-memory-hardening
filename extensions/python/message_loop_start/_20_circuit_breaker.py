@@ -64,12 +64,12 @@ class CircuitBreakerGate(Extension):
             return
 
         # Stash a flag for the agent notice extension and the telemetry hook.
+        # v0.5.3 fix: params_temporary, not extras_* -- extras are rendered
+        # into the LLM prompt every iteration and persistent entries are
+        # never cleared, so the raw flag leaked into prompts for the rest
+        # of the chat.
         try:
-            loop_data.extras_persistent["_memory_breaker_open"] = True
-        except Exception:
-            pass
-        try:
-            loop_data.extras_temporary["_memory_breaker_open"] = True
+            loop_data.params_temporary["_memory_breaker_open"] = True
         except Exception:
             pass
 

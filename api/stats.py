@@ -1,7 +1,7 @@
-# GET /api/plugins/memory_hardening/stats (v0.5.0)
+# GET /api/plugins/memory_hardening/stats (v0.5.3)
 from __future__ import annotations
-import json
-from helpers.api import ApiHandler, Request, Response
+from typing import Any, Dict
+from helpers.api import ApiHandler, Request
 
 from usr.plugins.memory_hardening.helpers import (
     adaptive_interval as ai,
@@ -29,9 +29,14 @@ class Stats(ApiHandler):
     def get_methods():
         return ["GET", "POST"]
 
-    async def process(self, request: Request, response: Response):
+    async def process(self, input: Dict[str, Any], request: Request) -> Dict[str, Any]:
+        # v0.5.3 fix: the framework calls process(input_data, request) and
+        # json-dumps a returned dict. The old (request, response) signature
+        # plus response.set_body() raised AttributeError on every call, so
+        # this endpoint (and the WebUI dashboard) always returned 500.
         try:
-            cfg = self.plugin.get_config(self.agent) if hasattr(self, "plugin") else {}
+            from helpers.plugins import get_plugin_config
+            cfg = get_plugin_config("memory_hardening") or {}
         except Exception:
             cfg = {}
         try:
@@ -107,5 +112,4 @@ class Stats(ApiHandler):
                 "history_clamp_enabled": cfg.get("history_clamp_enabled", True),
             },
         }
-        response.set_body(json.dumps(payload, indent=2))
-        return response
+        return payload

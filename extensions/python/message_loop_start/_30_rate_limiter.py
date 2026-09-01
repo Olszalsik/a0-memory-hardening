@@ -45,7 +45,10 @@ class RateLimiter(Extension):
         if not rl.try_acquire(subdir, max_per_min=max_pm, burst=burst):
             tm.record_outcome(outcome="skipped_breaker")
             try:
-                loop_data.extras_persistent["_memory_rate_limited"] = True
+                # v0.5.3 fix: params_temporary, not extras_persistent --
+                # extras are rendered into the LLM prompt every iteration
+                # and persistent entries are never cleared.
+                loop_data.params_temporary["_memory_rate_limited"] = True
             except Exception:
                 pass
             log.debug("rate_limiter: throttled subdir=%s", subdir)

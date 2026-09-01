@@ -5,8 +5,8 @@
 
 from __future__ import annotations
 
-import json
-from helpers.api import ApiHandler, Request, Response
+from typing import Any, Dict
+from helpers.api import ApiHandler, Request
 
 from usr.plugins.memory_hardening.helpers import circuit_breaker as cb
 
@@ -16,12 +16,12 @@ class ResetBreaker(ApiHandler):
     def get_methods():
         return ["POST", "GET"]
 
-    async def process(self, request: Request, response: Response):
+    # v0.5.3 fix: process(input_data, request) returning a dict -- the old
+    # (request, response) + response.set_body() form raised AttributeError
+    # (500) on every call.
+    async def process(self, input: Any, request: Request) -> Dict[str, Any]:
         try:
             cb.reset_instance()
-            body = json.dumps({"ok": True, "message": "breaker reset"})
+            return {"ok": True, "message": "breaker reset"}
         except Exception as e:
-            body = json.dumps({"ok": False, "error": str(e)})
-            response.status_code = 500
-        response.set_body(body)
-        return response
+            return {"ok": False, "error": str(e)}

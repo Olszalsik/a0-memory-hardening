@@ -15,8 +15,12 @@ import sys
 import types
 import asyncio
 import importlib
+from pathlib import Path
 
-sys.path.insert(0, "/a0")
+# Repo/install root: derived from this file's location
+# (<root>/usr/plugins/memory_hardening/tests/ -> 4 levels up), which works
+# both inside the container (/a0) and on the host.
+sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
 results = []
 
 
@@ -300,7 +304,7 @@ def t_dispatcher_class_wins():
     assert rwg.STATE["timeouts_caught"] == 1, rwg.STATE
 
 
-for name, fn in [
+_CASES = [
     ("apply_wraps", t_apply_wraps),
     ("timeout_caught", t_timeout_caught),
     ("cancelled_reraised", t_cancelled_reraised),
@@ -309,17 +313,33 @@ for name, fn in [
     ("disable_restores", t_disable_restores),
     ("state_shape", t_state_shape),
     ("dispatcher_class_wins", t_dispatcher_class_wins),
-]:
-    check(name, fn)
+]
 
-print("=" * 70)
-total = passed = 0
-for n, r in results:
-    total += 1
-    if r.startswith("PASS"):
-        passed += 1
-    print(f"  {n:28s} {r}")
-print("=" * 70)
-print(f"{passed}/{total} tests passed")
-_unpatch_dispatcher()
-sys.exit(0 if passed == total else 1)
+if __name__ == "__main__":
+    # Standalone runner: python tests/test_recall_wait_guard.py
+    for name, fn in _CASES:
+        check(name, fn)
+
+    print("=" * 70)
+    total = passed = 0
+    for n, r in results:
+        total += 1
+        if r.startswith("PASS"):
+            passed += 1
+        print(f"  {n:28s} {r}")
+    print("=" * 70)
+    print(f"{passed}/{total} tests passed")
+    _unpatch_dispatcher()
+    sys.exit(0 if passed == total else 1)
+else:
+    # pytest: expose each case as a real test (exceptions propagate).
+    import pytest
+
+    @pytest.fixture(autouse=True)
+    def _cleanup_dispatcher():
+        yield
+        _unpatch_dispatcher()
+
+    @pytest.mark.parametrize("name,fn", _CASES, ids=[n for n, _ in _CASES])
+    def test_case(name, fn):
+        fn()

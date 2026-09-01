@@ -48,7 +48,10 @@ class PerSubdirBreaker(Extension):
         if psb.should_skip(subdir, **kw):
             tm.record_outcome(outcome="skipped_breaker")
             try:
-                loop_data.extras_persistent["_memory_subdir_breaker_open"] = subdir
+                # v0.5.3 fix: params_temporary, not extras_persistent --
+                # extras are rendered into the LLM prompt every iteration
+                # and persistent entries are never cleared.
+                loop_data.params_temporary["_memory_subdir_breaker_open"] = subdir
             except Exception:
                 pass
             log.debug("per_subdir_breaker: open for subdir=%s", subdir)

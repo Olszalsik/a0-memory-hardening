@@ -17,8 +17,14 @@
 # Run from the plugin directory:
 #   /opt/venv/bin/python tests/test_history_clamp.py
 import sys, asyncio, ast
-sys.path.insert(0, '/a0')
-sys.path.insert(0, '/a0/usr/plugins')
+from pathlib import Path
+
+# Repo/install root: derived from this file's location
+# (<root>/usr/plugins/memory_hardening/tests/ -> 4 levels up), which works
+# both inside the container (/a0) and on the host.
+_REPO_ROOT = str(Path(__file__).resolve().parents[4])
+sys.path.insert(0, _REPO_ROOT)
+sys.path.insert(0, str(Path(_REPO_ROOT) / 'usr' / 'plugins'))
 
 from unittest.mock import patch, MagicMock
 
@@ -34,7 +40,7 @@ from usr.plugins.memory_hardening.extensions.python.util_model_call_before impor
 
 results = []
 
-def test(name, fn):
+def _run_case(name, fn):
     try:
         fn()
         results.append((name, 'PASS'))
@@ -302,7 +308,7 @@ def t_ext_full_path_clamps():
 
 def t_ext_ast_shape():
     # The extension is a class subclassing Extension with an async execute.
-    p = '/a0/usr/plugins/memory_hardening/extensions/python/util_model_call_before/_10_clamp_memory_history.py'
+    p = str(Path(_REPO_ROOT) / 'usr' / 'plugins' / 'memory_hardening' / 'extensions' / 'python' / 'util_model_call_before' / '_10_clamp_memory_history.py')
     tree = ast.parse(open(p).read())
     found = False
     for n in tree.body:
@@ -315,7 +321,7 @@ def t_ext_ast_shape():
     assert found, 'ClampMemoryUtilCall(Extension) with async execute not found'
 
 
-for name, fn in [
+_CASES = [
     # prompt detection (7)
     ('prompt_memories_sum', t_prompt_memories_sum),
     ('prompt_solutions_sum', t_prompt_solutions_sum),
@@ -350,15 +356,26 @@ for name, fn in [
     ('ext_respects_clamp_disabled', t_ext_respects_clamp_disabled),
     ('ext_full_path_clamps', t_ext_full_path_clamps),
     ('ext_ast_shape', t_ext_ast_shape),
-]:
-    test(name, fn)
+]
 
-print('=' * 70)
-total = 0; passed = 0
-for n, r in results:
-    total += 1
-    if r.startswith('PASS'): passed += 1
-    print(f'  {n:38s} {r}')
-print('=' * 70)
-print(f'{passed}/{total} tests passed')
-sys.exit(0 if passed == total else 1)
+if __name__ == '__main__':
+    # Standalone runner: python tests/test_history_clamp.py
+    for name, fn in _CASES:
+        _run_case(name, fn)
+
+    print('=' * 70)
+    total = 0; passed = 0
+    for n, r in results:
+        total += 1
+        if r.startswith('PASS'): passed += 1
+        print(f'  {n:38s} {r}')
+    print('=' * 70)
+    print(f'{passed}/{total} tests passed')
+    sys.exit(0 if passed == total else 1)
+else:
+    # pytest: expose each case as a real test (exceptions propagate).
+    import pytest
+
+    @pytest.mark.parametrize("name,fn", _CASES, ids=[n for n, _ in _CASES])
+    def test_case(name, fn):
+        fn()

@@ -62,16 +62,21 @@ def gc_once(*, idle_min=30.0, max_entries=16):
     evicted_overflow = 0
     subdirs = list(idx.keys())
     subdirs.sort(key=lambda s: (_subdir_last_used(s) or 0.0))
+    # v0.5.3 fix: an entry with no recorded access is UNKNOWN, not idle.
+    # touch() is only called from the recall path, so treating None as
+    # idle evicted every cached index on every pass and forced a full
+    # FAISS reload on the next recall. Unknown entries are never evicted.
     for subdir in list(subdirs):
         last = _subdir_last_used(subdir)
-        if last is None or last < idle_cutoff:
+        if last is not None and last < idle_cutoff:
             if _evict(subdir):
                 evicted_idle += 1
                 subdirs.remove(subdir)
     if len(idx) > max_entries:
-        subdirs.sort(key=lambda s: (_subdir_last_used(s) or 0.0))
-        while len(idx) > max_entries and subdirs:
-            oldest = subdirs.pop(0)
+        known = [s for s in subdirs if _subdir_last_used(s) is not None]
+        known.sort(key=lambda s: _subdir_last_used(s))
+        while len(idx) > max_entries and known:
+            oldest = known.pop(0)
             if _evict(oldest):
                 evicted_overflow += 1
     if evicted_idle or evicted_overflow:

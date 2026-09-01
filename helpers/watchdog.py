@@ -137,7 +137,7 @@ class WatchdogRegistry:
             if wd.task.done():
                 wd.completed = True
                 continue
-            if (now - wd.started_at) > wd.hard_cap_sec:
+            if (now - wd.started_at) > stuck_threshold_sec:
                 try:
                     wd.task.cancel()
                 except Exception as e:  # pragma: no cover - defensive

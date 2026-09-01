@@ -29,11 +29,28 @@ from helpers import plugins
 
 from usr.plugins.memory_hardening.helpers import (
     circuit_breaker as cb,
+    index_gc as igc,
     telemetry as tm,
     watchdog as wd,
 )
 
 log = logging.getLogger("memory_hardening.recall_telemetry")
+
+
+def _recall_subdir(agent) -> str:
+    """Mirror _get_subdir() from the message_loop_start extensions: the
+    FAISS subdir this recall is serving, used to mark the index cache hot
+    for index_gc."""
+    try:
+        cfg = plugins.get_plugin_config("_memory", agent) or {}
+        if cfg.get("project_memory_isolation", True):
+            from helpers import projects
+            pn = projects.get_context_project_name(agent.context)
+            if pn:
+                return f"projects/{pn}"
+        return cfg.get("agent_memory_subdir", "") or "default"
+    except Exception:
+        return "default"
 
 
 def _read_cfg(agent) -> Optional[dict]:
@@ -67,6 +84,13 @@ class RecallTelemetry(Extension):
         if not cfg.get("telemetry_enabled", True) and not cfg.get("breaker_enabled", True):
             return
 
+        # Mark this subdir's index as in use so index_gc only evicts
+        # indexes that have actually gone stale (v0.5.3).
+        try:
+            igc.touch(_recall_subdir(self.agent))
+        except Exception:
+            pass
+
         # Pull the task back out of agent data
         task = None
         try:
@@ -89,10 +113,19 @@ class RecallTelemetry(Extension):
         error_msg = None
         try:
             if not task.done():
-                # _91 should have awaited it. If still pending, treat as a hang.
-                outcome = "failed"
-                error_msg = "recall task still pending after _91_recall_wait"
+                # v0.5.3 fix: with _memory's delayed-recall mode,
+                # _91_recall_wait intentionally leaves the task pending on
+                # the iteration that created it. That is healthy, not a
+                # failure -- record nothing here and let the outcome be
+                # picked up on the iteration where _91 actually awaits it.
+                return
             else:
+                # v0.5.3 fix: _memory never clears the task slot, so a done
+                # task would otherwise be re-inspected on every subsequent
+                # iteration, re-recording the outcome with ever-growing
+                # latency. Only record the first inspection.
+                if wd_record is not None and wd_record.completed:
+                    return
                 if wd_record is not None:
                     latency_ms = max(0.0, (time.time() - wd_record.started_at) * 1000.0)
                 try:

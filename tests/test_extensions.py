@@ -1,6 +1,22 @@
 # Test suite for memory_hardening extension classes (v0.3.0)
+#
+# Run standalone from the plugin directory:
+#   python tests/test_extensions.py
+# or with pytest from the repo root:
+#   pytest usr/plugins/memory_hardening/tests/
+#
+# NOTE: originally a script-style suite with module-level sys.exit(); that
+# crashed pytest collection (SystemExit during import -> INTERNALERROR),
+# so the runner now only executes under `python tests/test_extensions.py`.
 import sys, os, ast
-sys.path.insert(0, '/a0')
+from pathlib import Path
+
+# Repo/install root: derived from this file's location
+# (<root>/usr/plugins/memory_hardening/tests/ -> 4 levels up), which works
+# both inside the container (/a0) and on the host.
+_REPO_ROOT = Path(__file__).resolve().parents[4]
+_PLUGIN = _REPO_ROOT / 'usr' / 'plugins' / 'memory_hardening'
+
 results = []
 
 def check(name, fn):
@@ -35,11 +51,11 @@ all_ext = [
 ]
 
 def t_all_extensions():
-    base = '/a0/usr/plugins/memory_hardening/extensions/python/'
+    base = _PLUGIN / 'extensions' / 'python'
     found = []
     for rel, expected in all_ext:
-        p = base + rel
-        tree = ast.parse(open(p).read())
+        p = base / rel
+        tree = ast.parse(p.read_text(encoding='utf-8'))
         for n in tree.body:
             if isinstance(n, ast.ClassDef) and n.name == expected:
                 for b in n.bases:
@@ -49,8 +65,8 @@ def t_all_extensions():
 
 def t_api_handlers():
     for f, expected in [('stats.py', 'Stats'), ('reset_breaker.py', 'ResetBreaker')]:
-        p = '/a0/usr/plugins/memory_hardening/api/' + f
-        tree = ast.parse(open(p).read())
+        p = _PLUGIN / 'api' / f
+        tree = ast.parse(p.read_text(encoding='utf-8'))
         ok = False
         for n in tree.body:
             if isinstance(n, ast.ClassDef) and n.name == expected:
@@ -63,9 +79,9 @@ def t_api_handlers():
 
 def t_manifest():
     import yaml
-    m = yaml.safe_load(open('/a0/usr/plugins/memory_hardening/plugin.yaml'))
+    m = yaml.safe_load((_PLUGIN / 'plugin.yaml').read_text(encoding='utf-8'))
     assert m['version'] == '0.5.3'
-    cfg = yaml.safe_load(open('/a0/usr/plugins/memory_hardening/default_config.yaml'))
+    cfg = yaml.safe_load((_PLUGIN / 'default_config.yaml').read_text(encoding='utf-8'))
     # Check Phase 3 keys
     for k in ['rate_limiter_enabled', 'per_subdir_breaker_enabled',
               'adaptive_interval_enabled', 'memorize_hard_cancel_enabled',
@@ -77,7 +93,7 @@ def t_manifest():
         assert k in cfg, f'missing history_clamp key: {k}'
 
 def t_webui():
-    html = open('/a0/usr/plugins/memory_hardening/webui/config.html').read()
+    html = (_PLUGIN / 'webui' / 'config.html').read_text(encoding='utf-8')
     assert html.startswith('<html>')
     # Phase 3 markers
     for marker in ['Rate Limiter', 'Per-Subdir Breaker',
@@ -88,32 +104,43 @@ def t_webui():
 
 def t_hook_points():
     # Verify extension files exist in correct hook-point directories
-    import os
-    ext_base = '/a0/usr/plugins/memory_hardening/extensions/python/'
+    ext_base = _PLUGIN / 'extensions' / 'python'
     hook_points = ['message_loop_start', 'monologue_end', 'message_loop_prompts_after',
                    'job_loop', 'system_prompt', 'embedding_model_changed',
                    'util_model_call_before']
     for hp in hook_points:
-        p = ext_base + hp
-        assert os.path.isdir(p), f'missing hook point dir: {p}'
+        p = ext_base / hp
+        assert p.is_dir(), f'missing hook point dir: {p}'
         files = [f for f in os.listdir(p) if f.endswith('.py')]
         assert len(files) >= 1, f'no extensions in {hp}'
 
-for name, fn in [
-    ('all_14_extensions', t_all_extensions),
+
+_CASES = [
+    ('all_17_extensions', t_all_extensions),
     ('api_handlers', t_api_handlers),
-    ('manifest_v0.3.0', t_manifest),
+    ('manifest_v0.5.3', t_manifest),
     ('webui_phase3', t_webui),
     ('hook_points', t_hook_points),
-]:
-    check(name, fn)
+]
 
-print('=' * 70)
-total = 0; passed = 0
-for n, r in results:
-    total += 1
-    if r.startswith('PASS'): passed += 1
-    print(f'  {n:25s} {r}')
-print('=' * 70)
-print(f'{passed}/{total} tests passed')
-sys.exit(0 if passed == total else 1)
+if __name__ == '__main__':
+    # Standalone runner: python tests/test_extensions.py
+    for name, fn in _CASES:
+        check(name, fn)
+
+    print('=' * 70)
+    total = 0; passed = 0
+    for n, r in results:
+        total += 1
+        if r.startswith('PASS'): passed += 1
+        print(f'  {n:25s} {r}')
+    print('=' * 70)
+    print(f'{passed}/{total} tests passed')
+    sys.exit(0 if passed == total else 1)
+else:
+    # pytest: expose each case as a real test (exceptions propagate).
+    import pytest
+
+    @pytest.mark.parametrize("name,fn", _CASES, ids=[n for n, _ in _CASES])
+    def test_case(name, fn):
+        fn()
