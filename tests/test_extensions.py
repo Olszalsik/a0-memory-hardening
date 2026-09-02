@@ -26,7 +26,8 @@ def check(name, fn):
     except Exception as e:
         results.append((name, f'FAIL: {e}'))
 
-# All 17 extension files (Phase 1+2+3+4+5)
+# All 16 extension files (Phase 1+2+3+4+5; v0.6.0 removed the dead
+# adaptive_interval extension)
 all_ext = [
     ('message_loop_start/_10_watchdog_init.py', 'WatchdogInit'),
     ('message_loop_start/_20_circuit_breaker.py', 'CircuitBreakerGate'),
@@ -43,7 +44,9 @@ all_ext = [
     ('job_loop/_30_memory_health.py', 'MemoryHealth'),
     ('job_loop/_40_index_gc.py', 'IndexGC'),
     ('job_loop/_50_quarantine.py', 'QuarantineScan'),
-    ('job_loop/_60_adaptive_interval.py', 'AdaptiveInterval'),
+    # v0.6.0: job_loop/_60_adaptive_interval.py REMOVED (dead feature:
+    # record_latency_ms had no production caller and the persist path
+    # called a nonexistent helpers.plugins.set_plugin_config).
     ('embedding_model_changed/_20_auto_recover.py', 'AutoRecover'),
     ('system_prompt/_05_hardening_notice.py', 'HardeningNotice'),
     # v0.5.0
@@ -61,7 +64,7 @@ def t_all_extensions():
                 for b in n.bases:
                     if isinstance(b, ast.Name) and b.id == 'Extension':
                         found.append(expected)
-    assert len(found) == 17, f'expected 17, got {len(found)}: {found}'
+    assert len(found) == 16, f'expected 16, got {len(found)}: {found}'
 
 def t_api_handlers():
     for f, expected in [('stats.py', 'Stats'), ('reset_breaker.py', 'ResetBreaker')]:
@@ -80,13 +83,18 @@ def t_api_handlers():
 def t_manifest():
     import yaml
     m = yaml.safe_load((_PLUGIN / 'plugin.yaml').read_text(encoding='utf-8'))
-    assert m['version'] == '0.5.4'
+    assert m['version'] == '0.6.0'
     cfg = yaml.safe_load((_PLUGIN / 'default_config.yaml').read_text(encoding='utf-8'))
     # Check Phase 3 keys
     for k in ['rate_limiter_enabled', 'per_subdir_breaker_enabled',
-              'adaptive_interval_enabled', 'memorize_hard_cancel_enabled',
+              'memorize_hard_cancel_enabled',
               'quarantine_enabled', 'embedding_swap_enabled']:
         assert k in cfg, f'missing Phase 3 key: {k}'
+    # v0.6.0: the dead adaptive_interval keys must be gone
+    for k in ['adaptive_interval_enabled', 'adaptive_interval_min',
+              'adaptive_interval_max', 'adaptive_interval_target_p99_ms',
+              'dashboard_refresh_sec', 'dashboard_max_points']:
+        assert k not in cfg, f'stale key still present: {k}'
     # Check v0.5.0 history_clamp keys
     for k in ['history_clamp_enabled', 'history_clamp_max_chars_override',
               'history_clamp_inject_truncation_notice']:
@@ -95,12 +103,14 @@ def t_manifest():
 def t_webui():
     html = (_PLUGIN / 'webui' / 'config.html').read_text(encoding='utf-8')
     assert html.startswith('<html>')
-    # Phase 3 markers
+    # Phase 3 markers (v0.6.0: 'Adaptive Interval' card removed with the
+    # dead feature; 'Coroutine Guard' toggle added)
     for marker in ['Rate Limiter', 'Per-Subdir Breaker',
-                   'Adaptive Interval', 'Quarantine',
+                   'Quarantine',
                    'Embedding Hot-Swap', 'features active', 'Advanced',
-                   'Memory History Clamp']:
+                   'Memory History Clamp', 'Coroutine Guard']:
         assert marker in html, f'missing: {marker}'
+    assert 'Adaptive Interval' not in html, 'stale Adaptive Interval card still present'
 
 def t_hook_points():
     # Verify extension files exist in correct hook-point directories
@@ -116,9 +126,9 @@ def t_hook_points():
 
 
 _CASES = [
-    ('all_17_extensions', t_all_extensions),
+    ('all_16_extensions', t_all_extensions),
     ('api_handlers', t_api_handlers),
-    ('manifest_v0.5.4', t_manifest),
+    ('manifest_v0.6.0', t_manifest),
     ('webui_phase3', t_webui),
     ('hook_points', t_hook_points),
 ]

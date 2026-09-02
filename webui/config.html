@@ -1,4 +1,4 @@
-<html><head><title>Memory Hardening v0.5.4</title>
+<html><head><title>Memory Hardening v0.6.0</title>
 <script type="module">import { store } from "/components/plugins/plugin-settings-store.js";</script>
 <style>
 body{font-family:system-ui,sans-serif;padding:16px;max-width:800px;margin:0 auto;}
@@ -124,15 +124,15 @@ body{font-family:system-ui,sans-serif;padding:16px;max-width:800px;margin:0 auto
 </div>
 
 <div class="mh-card">
-<h3>Adaptive Interval <span class="mh-badge" :class="config.adaptive_interval_enabled ? '' : 'off'" x-text="config.adaptive_interval_enabled ? 'ON' : 'OFF'"></span></h3>
-<p>Widens recall interval when the breaker is tripping, narrows back when stable.</p>
-<div class="mh-toggle"><label>Adaptive interval enabled</label><input type="checkbox" x-model="config.adaptive_interval_enabled"></div>
-</div>
-
-<div class="mh-card">
 <h3>Memorize Hard Cancel <span class="mh-badge" :class="config.memorize_hard_cancel_enabled ? '' : 'off'" x-text="config.memorize_hard_cancel_enabled ? 'ON' : 'OFF'"></span></h3>
 <p>Cooperative cancellation + stuck-thread scanner for DeferredTask workers.</p>
 <div class="mh-toggle"><label>Memorize hard cancel enabled</label><input type="checkbox" x-model="config.memorize_hard_cancel_enabled"></div>
+</div>
+
+<div class="mh-card">
+<h3>Coroutine Guard <span class="mh-badge" :class="config.coroutine_guard_enabled ? '' : 'off'" x-text="config.coroutine_guard_enabled ? 'ON' : 'OFF'"></span></h3>
+<p>Closes litellm/httpx coroutines leaked by <code>asyncio.wait_for</code> cancellations (each leaked coroutine pins the provider's HTTP transport until keepalive expiry). A job_loop sweep runs once a minute as a safety net.</p>
+<div class="mh-toggle"><label>Coroutine guard enabled</label><input type="checkbox" x-model="config.coroutine_guard_enabled"></div>
 </div>
 
 <div class="mh-card">
@@ -182,7 +182,6 @@ body{font-family:system-ui,sans-serif;padding:16px;max-width:800px;margin:0 auto
 <template x-if="stats && stats.telemetry"><div style="margin-top:6px;">Uptime: <span class="v" x-text="fmtUptime(stats.telemetry.uptime_sec)"></span> | Recalls: <span class="v" x-text="stats.telemetry.counters.recall_started"></span> | OK: <span class="v" x-text="stats.telemetry.counters.recall_succeeded + stats.telemetry.counters.recall_no_results"></span> | Fail: <span class="v" x-text="stats.telemetry.counters.recall_failed"></span> | Timeout: <span class="v" x-text="stats.telemetry.counters.recall_timeout"></span></div></template>
 <template x-if="stats && stats.telemetry && stats.telemetry.latency && stats.telemetry.latency.count > 0"><div style="margin-top:6px;">Latency: <span class="v" x-text="fmtMs(stats.telemetry.latency.avg_ms)"></span> avg, <span class="v" x-text="fmtMs(stats.telemetry.latency.p50_ms)"></span> p50, <span class="v" x-text="fmtMs(stats.telemetry.latency.p95_ms)"></span> p95, <span class="v" x-text="fmtMs(stats.telemetry.latency.p99_ms)"></span> p99</div></template>
 <template x-if="stats && stats.rate_limiter"><div style="margin-top:6px;">Rate limiter: allowed=<span class="v" x-text="stats.rate_limiter.stats.allowed || 0"></span> throttled=<span class="v" x-text="stats.rate_limiter.stats.throttled || 0"></span></div></template>
-<template x-if="stats && stats.adaptive_interval"><div style="margin-top:6px;">Adaptive interval: current=<span class="v" x-text="stats.adaptive_interval.current_interval || 0"></span> p99=<span class="v" x-text="fmtMs(stats.adaptive_interval.p99_ms)"></span></div></template>
 <template x-if="stats && stats.history_clamp"><div style="margin-top:6px;">History clamp: clamped=<span class="v" x-text="stats.history_clamp.clamped || 0"></span> within-budget=<span class="v" x-text="stats.history_clamp.skipped_within_budget || 0"></span> non-mem=<span class="v" x-text="stats.history_clamp.skipped_non_memory || 0"></span> | last budget=<span class="v" x-text="stats.history_clamp.last_budget || 0"></span> last status=<span class="v" x-text="stats.history_clamp.last_status || '-'"></span></div></template>
 </div></div>
 
@@ -214,10 +213,9 @@ const MH_DEFAULTS = {
   memorize_watchdog_enabled:true, memorize_watchdog_soft_cap_sec:120, memorize_watchdog_hard_warn_sec:300,
   index_gc_enabled:true, index_gc_interval_sec:300, index_gc_idle_min:30, index_gc_max_entries:16,
   auto_recover_enabled:true, auto_recover_quarantine_dir:"tmp/memory/quarantine",
-  dashboard_enabled:true, dashboard_refresh_sec:5, dashboard_max_points:60,
+  dashboard_enabled:true,
   rate_limiter_enabled:true, rate_limiter_max_per_min:20, rate_limiter_burst:5,
   per_subdir_breaker_enabled:true, per_subdir_breaker_window_sec:180, per_subdir_breaker_threshold:2, per_subdir_breaker_cooldown_sec:90,
-  adaptive_interval_enabled:true, adaptive_interval_min:3, adaptive_interval_max:10, adaptive_interval_target_p99_ms:5000,
   memorize_hard_cancel_enabled:true, memorize_hard_cancel_scan_sec:60,
   quarantine_enabled:false, quarantine_max_age_days:90, quarantine_scan_interval_sec:3600, quarantine_archive_dir:"tmp/memory/archive",
   embedding_swap_enabled:false, embedding_swap_shadow_requests:10, embedding_swap_consensus_min:0.8,
@@ -241,7 +239,7 @@ function mhBackfill(cfg){
 // replacing it). Reactive: Alpine tracks each config.KEY access.
 function mhActiveCount(cfg){
   if(!cfg) return 0;
-  const f=["hardening_enabled","watchdog_enabled","breaker_enabled","telemetry_enabled","health_probe_enabled","faiss_health_enabled","memorize_watchdog_enabled","index_gc_enabled","auto_recover_enabled","rate_limiter_enabled","per_subdir_breaker_enabled","adaptive_interval_enabled","memorize_hard_cancel_enabled","history_clamp_enabled"];
+  const f=["hardening_enabled","watchdog_enabled","breaker_enabled","telemetry_enabled","health_probe_enabled","faiss_health_enabled","memorize_watchdog_enabled","index_gc_enabled","auto_recover_enabled","rate_limiter_enabled","per_subdir_breaker_enabled","memorize_hard_cancel_enabled","coroutine_guard_enabled","history_clamp_enabled"];
   return f.filter(k=>cfg[k]).length;
 }
 

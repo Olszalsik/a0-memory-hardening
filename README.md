@@ -1,6 +1,6 @@
 # memory_hardening
 
-**Version:** 0.5.2 · **Plugin ID:** `memory_hardening` · **Author:** Agent Zero Plugin (memory_hardening) · **License:** MIT
+**Version:** 0.6.0 · **Plugin ID:** `memory_hardening` · **Author:** Agent Zero Plugin (memory_hardening) · **License:** MIT
 
 ## What it does
 
@@ -42,7 +42,7 @@ That's it. Open **Settings -> Agent -> Memory Hardening** to see the live dashbo
 | 2 | 0.2.0 | 2026-07 | WebUI dashboard | ON |
 | 3 | 0.3.0 | 2026-07 | Rate limiter (per-subdir token bucket) | ON |
 | 3 | 0.3.0 | 2026-07 | Per-subdir circuit breaker | ON |
-| 3 | 0.3.0 | 2026-07 | Adaptive recall interval (3-10) | ON |
+| 3 | 0.3.0 | 2026-07 | Adaptive recall interval (3-10) | REMOVED v0.6.0 (never had a working latency source) |
 | 3 | 0.3.0 | 2026-07 | Memorize hard cancel | ON |
 | 3 | 0.3.0 | 2026-07 | Quarantine (archive old indexes) | OFF |
 | 3 | 0.3.0 | 2026-07 | Embedding hot-swap (shadow validation) | OFF |
@@ -96,7 +96,6 @@ The clamp is a safe no-op when the history is already within budget, and it neve
   "auto_recover": { ... },
   "rate_limiter": { ... },
   "per_subdir_breaker": { ... },
-  "adaptive_interval": { ... },
   "memorize_canceller": { ... },
   "embedding_swap": { ... },
   "coroutine_guard": { "ticks": {...} },
@@ -122,7 +121,6 @@ Key toggles (all Phase 1+2+3+4 features default ON unless noted):
 - `auto_recover_enabled` — quarantine + rebuild on FAISS corruption
 - `rate_limiter_enabled` — per-subdir token bucket
 - `per_subdir_breaker_enabled` — one breaker per memory subdir
-- `adaptive_interval_enabled` — dynamic `memory_recall_interval`
 - `memorize_hard_cancel_enabled` — cooperative cancel + stuck-thread scan
 - `quarantine_enabled` — auto-archive old indexes (OFF by default)
 - `embedding_swap_enabled` — shadow validation (OFF by default)
@@ -162,7 +160,6 @@ When enabled, the framework auto-loads:
 - Telemetry (success/fail counters, latency p50/p95/p99)
 - Health Probe (FAISS index health, stuck task reports)
 - Rate Limiter (allowed/throttled per subdir)
-- Adaptive Interval (current interval, target latency)
 - Quarantine (archived indexes)
 - Embedding Hot-Swap (active swap, history)
 - Coroutine Guard (tick count, last tick age)
@@ -171,7 +168,7 @@ When enabled, the framework auto-loads:
 - Auto-Recovery (rebuild history)
 - **Recall Method Patch** (v0.4.0)
 
-Each card has a checkbox to toggle its feature on/off and an "Advanced" expander to tune thresholds. Click **Refresh** for instant update; otherwise the dashboard auto-refreshes every 5 seconds.
+Each card has a checkbox to toggle its feature on/off and an "Advanced" expander to tune thresholds. Click **Refresh** for instant update; otherwise the dashboard polls the stats endpoint every 60 seconds.
 
 ## API endpoints
 
@@ -210,7 +207,7 @@ memory_hardening/
 ├── plugin.yaml         # manifest
 ├── default_config.yaml # all 52 config keys with recommended values
 ├── hooks.py            # install / uninstall lifecycle
-├── helpers/            # 15 helpers (circuit_breaker, recall_patch, history_clamp, ...)
+├── helpers/            # 17 helpers (circuit_breaker, recall_patch, history_clamp, ...)
 ├── extensions/         # 16 extension hooks across the lifecycle
 ├── api/                # stats.py + reset_breaker.py
 ├── webui/              # config.html dashboard

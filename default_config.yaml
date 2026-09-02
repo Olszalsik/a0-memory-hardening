@@ -1,4 +1,4 @@
-# memory_hardening -- default configuration (v0.5.4)
+# memory_hardening -- default configuration (v0.6.0)
 #
 # All Phase 1+2+3 features are ENABLED by default with recommended values.
 # To disable a feature, set its `_enabled` key to false. Advanced tuning
@@ -88,10 +88,10 @@ auto_recover_quarantine_dir: tmp/memory/quarantine
 # ============================================================
 # Phase 2: WebUI Dashboard (recommended: ON)
 # ============================================================
-# Live status panel in the WebUI. Auto-refreshes every 5 seconds.
+# Live status panel in the WebUI.
+# (v0.6.0: dashboard_refresh_sec / dashboard_max_points removed -- no
+# code ever read them.)
 dashboard_enabled: true
-dashboard_refresh_sec: 5
-dashboard_max_points: 60
 
 # ============================================================
 # Phase 3: Rate Limiter (recommended: ON)
@@ -111,16 +111,6 @@ per_subdir_breaker_enabled: true
 per_subdir_breaker_window_sec: 180
 per_subdir_breaker_threshold: 2  # 2 failures in window = open
 per_subdir_breaker_cooldown_sec: 90
-
-# ============================================================
-# Phase 3: Adaptive Recall Interval (recommended: ON)
-# ============================================================
-# When the breaker is tripping, widens memory_recall_interval from
-# 3 to 10 to reduce FAISS pressure. Narrows back when stable.
-adaptive_interval_enabled: true
-adaptive_interval_min: 3         # never recall more often than every 3 iters
-adaptive_interval_max: 10        # never recall less often than every 10 iters
-adaptive_interval_target_p99_ms: 5000  # target p99 latency
 
 # ============================================================
 # Phase 3: Memorize Hard Cancel (recommended: ON)

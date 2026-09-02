@@ -1,4 +1,4 @@
-# Lifecycle hooks for the memory_hardening plugin (v0.5.4).
+# Lifecycle hooks for the memory_hardening plugin (v0.6.0).
 from __future__ import annotations
 
 import logging
@@ -47,9 +47,6 @@ def uninstall() -> None:
         from usr.plugins.memory_hardening.helpers.embedding_swap import (
             reset as es_reset,
         )
-        from usr.plugins.memory_hardening.helpers.adaptive_interval import (
-            reset as ai_reset,
-        )
         from usr.plugins.memory_hardening.helpers.rate_limiter import (
             reset as rl_reset,
         )
@@ -68,7 +65,6 @@ def uninstall() -> None:
         )
         mc_reset()
         es_reset()
-        ai_reset()
         rl_reset()
         psb_reset()
         cg_reset()

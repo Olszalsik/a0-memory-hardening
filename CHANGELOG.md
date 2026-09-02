@@ -2,6 +2,27 @@
 
 All notable changes to `memory_hardening` are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-09-02
+
+### Removed — Adaptive Recall Interval (structurally dead since birth)
+
+- **`helpers/adaptive_interval.py`** + **`extensions/python/job_loop/_60_adaptive_interval.py`** + all `adaptive_interval_*` config keys, the WebUI card, the `/stats` section, and the `hooks.py` uninstall reset. The feature never worked: `record_latency_ms()` had no production caller (only the tests fed it, so p99 was always `None` and `adjust()` always returned the current interval), and its persist path called `helpers.plugins.set_plugin_config(...)`, which does not exist in the framework (only `save_plugin_config` does) — the resulting `AttributeError` was swallowed into a debug log. Removing it rather than wiring it up: a real re-implementation needs an actual latency source plus the persist API.
+
+### Fixed — dormant/ignored code from the third-pass audit
+
+- **`coroutine_guard_enabled` is now saveable from the WebUI** — the toggle existed in `default_config.yaml` and was read by the job-loop sweep, but the settings UI never rendered it and it was absent from the save-field list. Added the "Coroutine Guard" card (replaces the removed Adaptive Interval entry in the active-features count).
+- **`faiss_health` scan is now recursive + bounded** — knowledge subdirs nest under `usr/memory/knowledge/<name>/` and the old single-level `os.listdir` silently missed every nested index. Bounded by `MAX_INDEXES=200` / `MAX_DIRS=500` (stat-storm caution on bindmounted workspaces) with a CUMULATIVE directory counter (the first cut compared per-level counts and never fired on a normal knowledge tree). `probe_one` staleness now uses the configured `faiss_health_max_age_days` (was a hardcoded 365 that contradicted `probe_all`'s 90-day default).
+- **`quarantine.scan()` walks nested subdirs too** (same one-level miss; `candidates[].subdir` is now relative to `usr/memory` with forward slashes), and `snapshot()` returns the last scan result — it previously read `scan.__dict__.get("_last")`, a field never set, so `/stats` always showed `last_scan: null`. The snapshot is now also exposed on the `/stats` endpoint as the `quarantine` field (the fix originally stopped at the helper).
+- **`auto_recover_quarantine_dir` is now honoured** — the key was documented in `default_config.yaml` but `auto_recover._quarantine_dir()` hardcoded `tmp/memory/quarantine`. The config value now flows through `attempt_recovery(..., quarantine_dir=...)` → `_move_to_quarantine`.
+
+### Removed — unused config keys
+
+- **`dashboard_refresh_sec` / `dashboard_max_points`** — no code ever read them.
+
+### Tests
+
+- Extension count 17 → 16 (adaptive interval extension removed); stale-key assertions added for all removed config keys; `Coroutine Guard` marker asserted present, `Adaptive Interval` absent; quarantine `snapshot()` last-scan and `probe_one(max_age_days=...)` covered in `test_helpers.py`.
+
 ## [0.5.2] - 2026-08-26
 
 ### Added — recall-wait `TimeoutError` guard (stops the 30s recall timeout from killing the agent loop)

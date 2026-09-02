@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(_REPO_ROOT) / 'usr' / 'plugins'))
 from memory_hardening.helpers import (
     telemetry, watchdog, circuit_breaker,
     memorize_watchdog, index_gc, faiss_health, auto_recover,
-    rate_limiter, per_subdir_breaker, adaptive_interval,
+    rate_limiter, per_subdir_breaker,
     quarantine, memorize_canceller, embedding_swap, recall_patch,
     history_clamp,
 )
@@ -94,6 +94,22 @@ def t_faiss():
     assert 'count' in r and 'results' in r
     info = faiss_health.probe_one('/nonexistent/index.faiss')
     assert info['warning'] == 'missing'
+    # v0.6.0: staleness is configurable (was hardcoded 365d in probe_one
+    # while probe_all default was 90d). Probe a REAL temp file with an old
+    # mtime and max_age_days=0 -- probing a missing file short-circuits at
+    # the FileNotFoundError branch, before the staleness check is reached.
+    import tempfile, os as _os
+    fd, tmp = tempfile.mkstemp(suffix='.faiss')
+    _os.close(fd)
+    try:
+        old = _os.stat(tmp).st_mtime - (120 * 86400)  # 120 days ago
+        _os.utime(tmp, (old, old))
+        stale_info = faiss_health.probe_one(tmp, max_age_days=0)
+        assert '|stale' in (stale_info['warning'] or ''), f"expected '|stale', got {stale_info['warning']!r}"
+        fresh_info = faiss_health.probe_one(tmp, max_age_days=365)
+        assert '|stale' not in (fresh_info['warning'] or '')
+    finally:
+        _os.unlink(tmp)
 def t_auto_recover():
     rec = auto_recover.attempt_recovery('test-sub', '/nonexistent/index.faiss')
     assert rec.get('attempted') is True
@@ -129,22 +145,16 @@ def t_per_subdir_breaker():
     # subdir-B may appear in snapshot because should_skip lazily creates entries
     assert snap['subdir-A']['state'] == 'open'
     assert snap['subdir-A']['failure_count'] == 2
-def t_adaptive_interval():
-    ai = adaptive_interval
-    ai.reset()
-    for _ in range(5):
-        ai.record_latency_ms(100.0)
-    new = ai.adjust(min_interval=2, max_interval=15, target_p99_ms=500.0, current_interval=3)
-    # p99 is 100ms which is < 350ms (0.7 * 500), so interval should narrow
-    assert new <= 3
-    snap = ai.snapshot()
-    assert snap['sample_count'] == 5
 def t_quarantine():
     q = quarantine
     # scan with very short max_age to find candidates
     result = q.scan(max_age_days=0)
     assert 'candidates' in result
     assert 'scanned_at' in result
+    # v0.6.0: snapshot() returns the last scan (was always None before)
+    snap = q.snapshot()
+    assert snap['last_scan'] is not None
+    assert snap['last_scan']['scanned_at'] == result['scanned_at']
 def t_memorize_canceller():
     mc = memorize_canceller
     mc.reset()
@@ -253,7 +263,6 @@ _CASES = [
     ('p2_index_gc', t_index_gc),
     ('p3_rate_limiter', t_rate_limiter),
     ('p3_per_subdir_breaker', t_per_subdir_breaker),
-    ('p3_adaptive_interval', t_adaptive_interval),
     ('p3_quarantine', t_quarantine),
     ('p3_memorize_canceller', t_memorize_canceller),
     ('p3_embedding_swap', t_embedding_swap),

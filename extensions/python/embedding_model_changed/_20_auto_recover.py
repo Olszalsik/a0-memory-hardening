@@ -68,7 +68,10 @@ class AutoRecover(Extension):
             return
 
         try:
-            rec = ar.attempt_recovery(subdir, index_path)
+            rec = ar.attempt_recovery(
+                subdir, index_path,
+                quarantine_dir=cfg.get("auto_recover_quarantine_dir") or None,
+            )
             if rec.get("attempted") and rec.get("quarantined_to"):
                 log.warning(
                     "auto_recover: subdir=%s quarantined corrupt index -> %s. Next load will rebuild.",

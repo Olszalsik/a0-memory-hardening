@@ -1,16 +1,16 @@
 # memory_hardening
 
-> Wraps the built-in `_memory` plugin with resilience, observability, and rate-limiting. Adds circuit breakers per memory subdir, embedding-swap on failure, exponential backoff with adaptive interval, per-process watchdog tasks, and a memory-history clamp.
+> Wraps the built-in `_memory` plugin with resilience, observability, and rate-limiting. Adds circuit breakers per memory subdir, embedding-swap on failure, per-process watchdog tasks, and a memory-history clamp.
 
-**Version:** 0.5.2 · **Plugin ID:** `memory_hardening`
+**Version:** 0.6.0 · **Plugin ID:** `memory_hardening`
 
 ## Purpose
 
-Wraps the built-in `_memory` plugin with resilience, observability, and rate-limiting. Adds circuit breakers per memory subdir, embedding-swap on failure, exponential backoff with adaptive interval, per-process watchdog tasks, and a memory-history clamp (merged from the former `_memory_resilience` plugin in v0.5.0).
+Wraps the built-in `_memory` plugin with resilience, observability, and rate-limiting. Adds circuit breakers per memory subdir, embedding-swap on failure, per-process watchdog tasks, and a memory-history clamp (merged from the former `_memory_resilience` plugin in v0.5.0).
 
 ## Ownership / Layout
 
-- `helpers/` — circuit breakers, rate limiter, adaptive interval, embedding swap, watchdog registry, memorize-cancellation, recall method patch, recall-wait TimeoutError guard, history clamp
+- `helpers/` — circuit breakers, rate limiter, embedding swap, watchdog registry, memorize-cancellation, recall method patch, recall-wait TimeoutError guard, history clamp
 - `hooks.py` — install() / pre_update() / uninstall() lifecycle; uninstall cancels every tracked watchdog task, un-guards `RecallWait.execute`, and resets process-global registries (including `history_clamp.STATE`)
 
 ## Local Contracts
@@ -220,3 +220,57 @@ additionally handles the 30s `TimeoutError` inside the recall task itself
 
 The same defect in `_model_fallback`'s memory recall patches was fixed in
 parallel (v2.8.2).
+
+## v0.6.0 — dormant-code cleanup (2026-09-02)
+
+Third-pass audit cleanup; every change removes something that never
+worked or was silently ignored:
+
+- **REMOVED the Adaptive Recall Interval feature** (`helpers/adaptive_interval.py`,
+  `job_loop/_60_adaptive_interval.py`, all `adaptive_interval_*` config
+  keys, the WebUI card, the `/stats` section, the `hooks.py` uninstall
+  reset). It was structurally dead since birth: `record_latency_ms()` had
+  NO production caller (only the test fed it, so p99 was always None and
+  `adjust()` always returned the current interval), and its persist path
+  called `helpers.plugins.set_plugin_config(...)` which does not exist in
+  the framework (only `save_plugin_config` does) — the AttributeError was
+  swallowed into a debug log. If dynamic recall intervals are ever wanted,
+  they need a real latency source + `save_plugin_config` first.
+- **`coroutine_guard_enabled` is now saveable from the WebUI** — the
+  toggle existed in `default_config.yaml` and was read by the job_loop
+  sweep, but the settings UI never rendered it and it was missing from
+  the save-field list, so users could not turn it off. Added the card +
+  added it to `mhActiveCount`'s feature list (14 features, same count —
+  replaces the removed adaptive-interval entry).
+- **`faiss_health` scan is now recursive + bounded** — knowledge subdirs
+  nest under `usr/memory/knowledge/<name>/`, and the old single-level
+  `os.listdir` silently missed every nested index. Bounded by
+  `MAX_INDEXES=200` / `MAX_DIRS=500` (stat-storm caution on the 9p
+  bindmount) with a CUMULATIVE directory counter (the first cut compared
+  per-level counts and never fired on a normal knowledge tree).
+  Staleness flagging now uses the configured
+  `faiss_health_max_age_days` (probe_one had a hardcoded 365 that
+  contradicted probe_all's 90-day default).
+- **`quarantine.scan()` walks nested subdirs too** (same one-level miss;
+  `candidates[].subdir` is now the path relative to `usr/memory`), and
+  `snapshot()` returns the last scan (it previously read
+  `scan.__dict__.get("_last")`, a field that was never set, so `/stats`
+  always showed `last_scan: null`). The snapshot is now also exposed on
+  the `/stats` endpoint as the `quarantine` field.
+- **`auto_recover_quarantine_dir` is now honoured** — the key was
+  documented in `default_config.yaml` but `auto_recover._quarantine_dir()`
+  hardcoded `tmp/memory/quarantine`. The config value flows through
+  `attempt_recovery(..., quarantine_dir=...)` → `_move_to_quarantine`.
+- **Removed the unused `dashboard_refresh_sec` / `dashboard_max_points`
+  keys** — no code ever read them.
+
+### Portability note (import style)
+
+All plugin modules import each other via the absolute
+`usr.plugins.memory_hardening.*` namespace (and
+`memory_hardening.helpers.*` in tests). This requires the plugin to be
+installed under a standard plugins root as `usr/plugins/memory_hardening/`
+— which is how Agent Zero loads every plugin, both in the container and
+in Hub installs. The plugin will NOT import if its folder is placed
+somewhere else and put on `sys.path` directly; do not "flatten" the
+package when installing.

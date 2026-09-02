@@ -32,7 +32,7 @@ If all three are true, the plugin is working. No further action needed.
 | **Leaked asyncio coroutines** | During multi-hour provider outages, cancelled `wait_for` tasks leak openai/httpx coroutines, freezing the WebSocket dispatcher. | **Coroutine Guard** sweeps leaked coroutines every 5s; **UI-loop pulse** keeps the event loop responsive. |
 | **Stuck `memorize` background threads** | The deferred memorize threads never report back, blocking shutdown. | **Memorize Watchdog** warns when they exceed 30s; **Memorize Hard Cancel** cooperatively cancels them. |
 | **Unbounded `Memory.index` cache** | The process-global `Memory.index[memory_subdir]` dict grows forever across agents and projects. | **Index Cache GC** evicts idle entries after 1 hour or 1000 entries. |
-| **Thundering retry pattern** | After a slow FAISS query, every agent hits FAISS again immediately. | **Rate Limiter** caps FAISS calls per memory subdir; **Adaptive Interval** widens `memory_recall_interval` from 3 to 10 when breaker is tripping. |
+| **Thundering retry pattern** | After a slow FAISS query, every agent hits FAISS again immediately. | **Rate Limiter** caps FAISS calls per memory subdir. |
 | **Noisy multi-project interference** | One project's FAISS slowness blocks every other project. | **Per-Subdir Breaker** gives each memory subdir its own breaker state. |
 | **Corrupt FAISS index** | A bad shutdown or disk error leaves FAISS un-loadable. | **Auto-Recovery** quarantines the corrupt file and triggers a rebuild from the embeddings cache + documents. |
 | **Stale indexes** | Indexes older than 30 days still get searched, slowing recall. | **Quarantine** auto-archives old indexes; recall ignores them by default. |
@@ -108,7 +108,6 @@ Card list:
 | **Telemetry** | Success/fail counters, latency p50/p95/p99 |
 | **Health Probe** | FAISS index health, stuck task reports |
 | **Rate Limiter** | Allowed/throttled per subdir |
-| **Adaptive Interval** | Current interval, target latency, history |
 | **Quarantine** | Archived indexes |
 | **Embedding Hot-Swap** | Active swap, history |
 | **Coroutine Guard** | Tick count, last tick age |
@@ -176,7 +175,6 @@ curl http://localhost:50001/api/plugins/memory_hardening/stats | jq .
   "auto_recover": {},
   "rate_limiter": {},
   "per_subdir_breaker": {},
-  "adaptive_interval": {},
   "memorize_canceller": {},
   "embedding_swap": {},
   "coroutine_guard": {},
@@ -285,7 +283,7 @@ This is controlled by the `_memory` plugin's `memory_recall_interval` setting (d
 3. Set to your preferred value (1-15, default 3).
 4. Save.
 
-If you also have **Adaptive Interval** enabled in `memory_hardening`, the plugin will override your value when the breaker is tripping. Disable Adaptive Interval in the WebUI if you want a fixed interval.
+The plugin does not modify `memory_recall_interval`; whatever you set in **Settings -> Agent -> Memory** is what recall uses.
 
 ---
 

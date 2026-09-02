@@ -14,19 +14,26 @@ _recovery_lock_path: Dict[str, bool] = {}
 _recovery_history: Dict[str, dict] = {}
 
 
-def _quarantine_dir():
+def _quarantine_dir(configured: Optional[str] = None):
+    """Resolve (and create) the quarantine dir.
+
+    v0.6.0: honours the ``auto_recover_quarantine_dir`` config key
+    (previously documented in default_config.yaml but ignored -- the
+    path was hardcoded here). Falls back to tmp/memory/quarantine.
+    """
+    rel = configured or "tmp/memory/quarantine"
     try:
-        p = files.get_abs_path("tmp/memory/quarantine")
+        p = files.get_abs_path(rel)
         os.makedirs(p, exist_ok=True)
         return p
     except Exception:
         return "/tmp/memory_quarantine"
 
 
-def _move_to_quarantine(path):
+def _move_to_quarantine(path, configured_dir: Optional[str] = None):
     if not os.path.exists(path):
         return None
-    qdir = _quarantine_dir()
+    qdir = _quarantine_dir(configured_dir)
     base = os.path.basename(path)
     parent = os.path.basename(os.path.dirname(path))
     ts = int(time.time())
@@ -46,12 +53,12 @@ def _move_to_quarantine(path):
         return None
 
 
-def attempt_recovery(subdir, index_path):
+def attempt_recovery(subdir, index_path, quarantine_dir: Optional[str] = None):
     if _recovery_lock_path.get(index_path):
         return {"attempted": False, "reason": "already_in_progress"}
     _recovery_lock_path[index_path] = True
     try:
-        quarantined_to = _move_to_quarantine(index_path)
+        quarantined_to = _move_to_quarantine(index_path, quarantine_dir)
         rec = {
             "attempted": True,
             "subdir": subdir,

@@ -4,7 +4,6 @@ from typing import Any, Dict
 from helpers.api import ApiHandler, Request
 
 from usr.plugins.memory_hardening.helpers import (
-    adaptive_interval as ai,
     auto_recover as ar,
     circuit_breaker as cb,
     coroutine_guard as cg,
@@ -68,10 +67,12 @@ class Stats(ApiHandler):
             "index_gc": igc.snapshot(),
             "faiss_health": faiss_report,
             "auto_recover": ar.history(),
+            # v0.6.0 — quarantine scan snapshot (last_scan was never
+            # previously exposed, so /stats always showed null)
+            "quarantine": qu.snapshot(),
             # Phase 3 fields
             "rate_limiter": rl.snapshot(),
             "per_subdir_breaker": psb.snapshot(),
-            "adaptive_interval": ai.snapshot(),
             "memorize_canceller": mc.snapshot(),
             "embedding_swap": es.snapshot(),
             # Phase 4 (2026-07-19) — coroutine lifecycle hygiene
@@ -100,7 +101,6 @@ class Stats(ApiHandler):
                 "rate_limiter_enabled": cfg.get("rate_limiter_enabled", True),
                 # Phase 3 defaults align with default_config.yaml (recommended: ON)
                 "per_subdir_breaker_enabled": cfg.get("per_subdir_breaker_enabled", True),
-                "adaptive_interval_enabled": cfg.get("adaptive_interval_enabled", True),
                 "memorize_hard_cancel_enabled": cfg.get("memorize_hard_cancel_enabled", True),
                 "quarantine_enabled": cfg.get("quarantine_enabled", False),
                 "embedding_swap_enabled": cfg.get("embedding_swap_enabled", False),
