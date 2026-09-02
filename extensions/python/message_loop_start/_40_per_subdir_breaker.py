@@ -35,7 +35,10 @@ class PerSubdirBreaker(Extension):
         cfg = _read_cfg(self.agent)
         if not cfg or not cfg.get("hardening_enabled", True):
             return
-        if not cfg.get("per_subdir_breaker_enabled", False):
+        # Default mirrors default_config.yaml (true). get_plugin_config
+        # does not merge defaults with config.json, so a config.json
+        # without this key must not silently disable the feature.
+        if not cfg.get("per_subdir_breaker_enabled", True):
             return
         if self.agent is None:
             return

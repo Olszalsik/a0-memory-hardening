@@ -64,6 +64,31 @@ def t_memorize():
     s = mw.MemorizeWatchdogRegistry.check(a, soft_cap_sec=0.05, hard_warn_sec=0.1)
     assert s is not None and s['level'] == 'hard'
     mw.MemorizeWatchdogRegistry.end(a)
+
+def t_memorize_refcount_and_reset():
+    # v0.5.4: concurrent memorize runs (fragments + solutions) share one
+    # refcounted state; the run's warned flags reset once ALL runs end.
+    mw = memorize_watchdog; mw.MemorizeWatchdogRegistry.clear()
+    class C: id = 'ctx-m2'
+    class A: context = C()
+    a = A()
+    mw.MemorizeWatchdogRegistry.begin(a, phase='fragments')
+    mw.MemorizeWatchdogRegistry.begin(a, phase='solutions')
+    time.sleep(0.05)
+    # First finisher must NOT close the run.
+    assert mw.MemorizeWatchdogRegistry.end(a) is None
+    # Active run is checkable while one run is still in flight.
+    s = mw.MemorizeWatchdogRegistry.check(a, soft_cap_sec=0.01, hard_warn_sec=0.2)
+    assert s is not None and s['level'] == 'soft'
+    duration = mw.MemorizeWatchdogRegistry.end(a)
+    assert duration is not None and duration >= 0.05
+    # Registry must be empty after the run ends (no leak, warned flags gone).
+    assert mw.MemorizeWatchdogRegistry.snapshot() == {}
+    # A NEW run starts clean -- no carried-over warned flags.
+    mw.MemorizeWatchdogRegistry.begin(a, phase='memorize')
+    s2 = mw.MemorizeWatchdogRegistry.check(a, soft_cap_sec=100.0, hard_warn_sec=200.0)
+    assert s2 is None  # fresh run, far under caps
+    mw.MemorizeWatchdogRegistry.end(a)
 def t_faiss():
     r = faiss_health.probe_all()
     assert 'count' in r and 'results' in r
@@ -194,12 +219,17 @@ def t_recall_patch_state_shape():
 def t_history_clamp():
     hc = history_clamp
     hc.reset()
+    # Markers match the RENDERED prompt content, not the prompt file
+    # name (v0.5.4 fix -- file names never occur in live system prompts).
+    memories_sentence = (
+        "- The response format is a JSON array of text notes containing "
+        "durable facts to memorize")
     # non-memory prompt -> skipped, message untouched
     cd = {"system": "You are a code reviewer.", "message": "x" * 100}
     assert hc.clamp(cd, None) == "skipped_non_memory"
     assert cd["message"] == "x" * 100
     # memory prompt over default budget -> clamped
-    cd = {"system": "memory.memories_sum", "message": "x" * 100_000}
+    cd = {"system": memories_sentence, "message": "x" * 100_000}
     assert hc.clamp(cd, None, inject_notice=False) == "clamped"
     assert len(cd["message"]) == 50_000
     state = hc.get_state()
@@ -217,6 +247,7 @@ _CASES = [
     ('p1_breaker', t_breaker),
     ('p1_watchdog', t_watchdog),
     ('p2_memorize', t_memorize),
+    ('p2_memorize_refcount', t_memorize_refcount_and_reset),
     ('p2_faiss_health', t_faiss),
     ('p2_auto_recover', t_auto_recover),
     ('p2_index_gc', t_index_gc),

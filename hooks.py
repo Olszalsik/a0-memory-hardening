@@ -1,4 +1,4 @@
-# Lifecycle hooks for the memory_hardening plugin (v0.5.3).
+# Lifecycle hooks for the memory_hardening plugin (v0.5.4).
 from __future__ import annotations
 
 import logging

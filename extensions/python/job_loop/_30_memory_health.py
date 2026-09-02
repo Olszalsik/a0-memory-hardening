@@ -42,12 +42,28 @@ class MemoryHealth(Extension):
             return
         _last_run_at = now
 
+        # Soft-flag at the "stuck" threshold (a pending recall task is
+        # not necessarily stuck -- delayed recall keeps it pending for a
+        # full iteration), but only REAP at the configured hard cap.
+        # v0.5.4 fix: the probe used to cancel at the 45s soft threshold,
+        # killing healthy delayed-recall tasks whose `await` in
+        # _91_recall_wait then raised CancelledError.
         stuck_threshold = float(cfg.get("health_stuck_task_sec", 45.0))
-        cancelled = wd.WatchdogRegistry.reap_stale(stuck_threshold)
+        aging = wd.WatchdogRegistry.flag_aging(stuck_threshold)
+        if aging:
+            log.info(
+                "health probe: %d recall task(s) pending > %.0fs",
+                aging, stuck_threshold,
+            )
+        hard_cap = float(cfg.get("watchdog_hard_cap_sec", 90.0))
+        cancelled = wd.WatchdogRegistry.reap_stale(hard_cap)
         if cancelled:
             for _ in range(cancelled):
                 tm.record_stuck_task_cancelled()
-            log.warning("health probe: cancelled %d stuck recall task(s)", cancelled)
+            log.warning(
+                "health probe: cancelled %d recall task(s) over hard cap (%.0fs)",
+                cancelled, hard_cap,
+            )
 
         # FAISS health probe (Phase 2)
         faiss_interval = interval

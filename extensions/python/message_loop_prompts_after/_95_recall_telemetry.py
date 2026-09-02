@@ -30,6 +30,7 @@ from helpers import plugins
 from usr.plugins.memory_hardening.helpers import (
     circuit_breaker as cb,
     index_gc as igc,
+    per_subdir_breaker as psb,
     telemetry as tm,
     watchdog as wd,
 )
@@ -118,6 +119,14 @@ class RecallTelemetry(Extension):
                 # the iteration that created it. That is healthy, not a
                 # failure -- record nothing here and let the outcome be
                 # picked up on the iteration where _91 actually awaits it.
+                # v0.5.4: count the recall as started exactly once (first
+                # sight of the pending task), so the dashboard's "Recalls"
+                # counter reflects reality.
+                if (wd_record is not None and not wd_record.completed
+                        and not wd_record.started_counted):
+                    wd_record.started_counted = True
+                    if cfg.get("telemetry_enabled", True):
+                        tm.record_started(agent_id=_agent_id(self.agent))
                 return
             else:
                 # v0.5.3 fix: _memory never clears the task slot, so a done
@@ -176,6 +185,21 @@ class RecallTelemetry(Extension):
                 breaker.record(outcome)
             except Exception as e:
                 log.debug("breaker record failed: %s", e)
+
+        # Feed the per-subdir breaker (v0.5.4 fix: record() previously had
+        # no callers, so that breaker stayed closed forever and its
+        # should_skip() gate in _40_per_subdir_breaker never opened).
+        if cfg.get("per_subdir_breaker_enabled", False):
+            try:
+                psb.record(
+                    _recall_subdir(self.agent),
+                    outcome,
+                    window_sec=float(cfg.get("per_subdir_breaker_window_sec", 180)),
+                    threshold=int(cfg.get("per_subdir_breaker_threshold", 2)),
+                    cooldown_sec=float(cfg.get("per_subdir_breaker_cooldown_sec", 90)),
+                )
+            except Exception as e:
+                log.debug("per-subdir breaker record failed: %s", e)
 
         # Mark watchdog completed so the registry can drop it
         wd.WatchdogRegistry.mark_completed(self.agent)

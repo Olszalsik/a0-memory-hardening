@@ -51,6 +51,7 @@ STATE = {
     "restored": 0,
     "timeouts_caught": 0,
     "errors_caught": 0,
+    "reaps_caught": 0,
     "import_errors": 0,
     "patch_attempts": 0,
     "last_status": "never_run",
@@ -146,6 +147,26 @@ def apply_recall_wait_guard(enabled: bool = True, agent=None) -> dict:
         try:
             return await original(self, loop_data, **kwargs)
         except asyncio.CancelledError:
+            # Loop-shutdown cancellation must always propagate. But a
+            # CancelledError raised by `await task` can also mean the
+            # health probe reaped THIS task as a hard-cap runaway
+            # (v0.5.4): in that case the recall is best-effort -- degrade
+            # to "no memories this turn" instead of tearing down the
+            # monologue loop. The registry only gains `cancelled=True`
+            # from our own reaper, never from loop shutdown.
+            try:
+                from usr.plugins.memory_hardening.helpers import watchdog as _wd
+                wd_rec = _wd.WatchdogRegistry.get(self.agent)
+            except Exception:
+                wd_rec = None
+            if wd_rec is not None and wd_rec.cancelled:
+                STATE["reaps_caught"] = STATE.get("reaps_caught", 0) + 1
+                STATE["last_status"] = "watchdog_reap_caught"
+                log.warning(
+                    "recall task cancelled by watchdog hard-cap reap -- "
+                    "guard caught CancelledError, agent loop preserved"
+                )
+                return
             # Never swallow loop-shutdown cancellation.
             raise
         except asyncio.TimeoutError:

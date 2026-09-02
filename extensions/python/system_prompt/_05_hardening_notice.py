@@ -47,12 +47,14 @@ class HardeningNotice(Extension):
         if state["state"] not in ("open", "half_open"):
             return
 
-        # Locate the agent's prompt extras container. The system_prompt
-        # extension contract varies between A0 versions; we attach to
-        # kwargs["agent"].context or fall back gracefully.
+        # The `system_prompt` extension contract passes a list of prompt
+        # fragments (see agent.py and upstream _memory's
+        # system_prompt/_20_behaviour_prompt.py, which appends to it).
+        # v0.5.4 fix: this extension used to write to a `data` kwarg that
+        # does not exist, so the notice was silently discarded.
         try:
-            data = kwargs.get("data") or {}
-            if not isinstance(data, dict):
+            prompts = kwargs.get("system_prompt")
+            if not isinstance(prompts, list):
                 return
             notice = (
                 "Memory recall is temporarily disabled because the memory "
@@ -63,6 +65,6 @@ class HardeningNotice(Extension):
                 + str(int(state["cooldown_remaining_sec"]))
                 + "s)"
             )
-            data["memory_hardening_notice"] = notice
+            prompts.append(notice)
         except Exception as e:
             log.debug("notice emit failed: %s", e)

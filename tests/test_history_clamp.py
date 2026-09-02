@@ -51,18 +51,34 @@ def _run_case(name, fn):
 # ---------------------------------------------------------------------------
 # Prompt detection
 # ---------------------------------------------------------------------------
+# Markers must match the RENDERED prompt content the framework hands to
+# util_model_call_before -- not prompt file names (the v0.5.0 bug: the
+# clamp silently never fired live).
+_MEMORIES_SUM_SENTENCE = (
+    "- The response format is a JSON array of text notes containing "
+    "durable facts to memorize")
+_SOLUTIONS_SUM_SENTENCE = (
+    '- The response format is a JSON array of successful solutions '
+    'containing "problem" and "solution" properties')
+
 def t_prompt_memories_sum():
-    assert hc._looks_like_memory_prompt(
-        "You are a memory summarizer. See memory.memories_sum.sys.md") is True
+    assert hc._looks_like_memory_prompt(_MEMORIES_SUM_SENTENCE) is True
 
 def t_prompt_solutions_sum():
-    assert hc._looks_like_memory_prompt("memory.solutions_sum template here") is True
+    assert hc._looks_like_memory_prompt(_SOLUTIONS_SUM_SENTENCE) is True
 
-def t_prompt_fragments_sum():
-    assert hc._looks_like_memory_prompt("memory.fragments_sum instructions") is True
-
-def t_prompt_solutions_sys():
-    assert hc._looks_like_memory_prompt("memory.solutions.sys preamble") is True
+def t_prompt_live_upstream_files():
+    """Regression: load the REAL upstream prompt files and assert the
+    markers still match their rendered content. Skipped when the host
+    install doesn't ship plugins/_memory (bare CI envs)."""
+    prompt_dir = Path(_REPO_ROOT) / 'plugins' / '_memory' / 'prompts'
+    fragments = prompt_dir / 'memory.memories_sum.sys.md'
+    solutions = prompt_dir / 'memory.solutions_sum.sys.md'
+    if not fragments.exists() or not solutions.exists():
+        import pytest
+        pytest.skip('upstream _memory prompts not present')
+    assert hc._looks_like_memory_prompt(fragments.read_text(encoding='utf-8')) is True
+    assert hc._looks_like_memory_prompt(solutions.read_text(encoding='utf-8')) is True
 
 def t_prompt_non_memory():
     assert hc._looks_like_memory_prompt("You are a code reviewer. Be terse.") is False
@@ -157,7 +173,7 @@ def t_clamp_within_budget_untouched():
         gpc.side_effect = lambda name, _a: {
             "_model_fallback": {"memory_memorize_max_chars": 200_000},
         }.get(name, {})
-        cd = {"system": "memory.memories_sum.sys.md prompt",
+        cd = {"system": _MEMORIES_SUM_SENTENCE,
               "message": "x" * 100_000}
         assert _clamp(cd, agent) == "skipped_within_budget"
         assert cd["message"] == "x" * 100_000
@@ -169,7 +185,7 @@ def t_clamp_over_budget_truncated_no_notice():
         gpc.side_effect = lambda name, _a: {
             "_model_fallback": {"memory_memorize_max_chars": 50_000},
         }.get(name, {})
-        cd = {"system": "memory.memories_sum.sys.md prompt",
+        cd = {"system": _MEMORIES_SUM_SENTENCE,
               "message": "x" * 100_000}
         assert _clamp(cd, agent, inject_notice=False) == "clamped"
         assert len(cd["message"]) == 50_000
@@ -182,7 +198,7 @@ def t_clamp_truncation_appends_notice():
         gpc.side_effect = lambda name, _a: {
             "_model_fallback": {"memory_memorize_max_chars": 50_000},
         }.get(name, {})
-        cd = {"system": "memory.solutions_sum", "message": "x" * 100_000}
+        cd = {"system": _SOLUTIONS_SUM_SENTENCE, "message": "x" * 100_000}
         assert _clamp(cd, agent, inject_notice=True) == "clamped"
         assert cd["message"].endswith(
             "[NOTE: Earlier turns were trimmed to fit the "
@@ -191,7 +207,7 @@ def t_clamp_truncation_appends_notice():
 
 def t_clamp_empty_message_untouched():
     hc.reset()
-    cd = {"system": "memory.memories_sum", "message": ""}
+    cd = {"system": _MEMORIES_SUM_SENTENCE, "message": ""}
     assert _clamp(cd, None) == "skipped_within_budget"
     assert cd["message"] == ""
 
@@ -201,7 +217,7 @@ def t_clamp_bug_safe_when_resolve_raises():
     hc.reset()
     agent = MagicMock()
     with patch("helpers.plugins.get_plugin_config", side_effect=Exception("cfg down")):
-        cd = {"system": "memory.memories_sum", "message": "x" * 100_000}
+        cd = {"system": _MEMORIES_SUM_SENTENCE, "message": "x" * 100_000}
         status = _clamp(cd, agent)
     assert status == "clamped"
     assert len(cd["message"]) < 100_000
@@ -216,7 +232,7 @@ def t_clamp_inner_try_except_no_crash():
         hc, "_resolve_budget",
         side_effect=Exception("simulated helper bug"),
     ):
-        cd = {"system": "memory.memories_sum", "message": "x" * 100_000}
+        cd = {"system": _MEMORIES_SUM_SENTENCE, "message": "x" * 100_000}
         status = _clamp(cd, agent)
     assert status == "error"
     assert cd["message"] == "x" * 100_000  # unchanged
@@ -229,7 +245,7 @@ def t_clamp_own_override_takes_precedence():
         gpc.side_effect = lambda name, _a: {
             "_model_fallback": {"memory_memorize_max_chars": 50000},
         }.get(name, {})
-        cd = {"system": "memory.memories_sum", "message": "y" * 50_000}
+        cd = {"system": _MEMORIES_SUM_SENTENCE, "message": "y" * 50_000}
         assert _clamp(cd, agent, own_override=1000, inject_notice=False) == "clamped"
         assert len(cd["message"]) == 1000
 
@@ -245,8 +261,8 @@ def t_state_accumulates():
             "_model_fallback": {"memory_memorize_max_chars": 50000},
         }.get(name, {})
         _clamp({"system": "code review", "message": "x" * 10}, agent)        # non-memory
-        _clamp({"system": "memory.memories_sum", "message": "x" * 100}, agent)  # within
-        _clamp({"system": "memory.memories_sum", "message": "x" * 100_000}, agent)  # clamped
+        _clamp({"system": _MEMORIES_SUM_SENTENCE, "message": "x" * 100}, agent)  # within
+        _clamp({"system": _MEMORIES_SUM_SENTENCE, "message": "x" * 100_000}, agent)  # clamped
     s = hc.get_state()
     assert s["calls_seen"] == 3
     assert s["skipped_non_memory"] == 1
@@ -287,14 +303,14 @@ def _run_ext(plugin_cfg, system_prompt, message):
 
 def t_ext_respects_hardening_disabled():
     cd = _run_ext({"hardening_enabled": False, "history_clamp_enabled": True},
-                  "memory.memories_sum", "x" * 100_000)
+                  _MEMORIES_SUM_SENTENCE, "x" * 100_000)
     # Master switch off -> clamp did not fire.
     assert cd["message"] == "x" * 100_000
     assert hc.get_state()["clamped"] == 0
 
 def t_ext_respects_clamp_disabled():
     cd = _run_ext({"hardening_enabled": True, "history_clamp_enabled": False},
-                  "memory.memories_sum", "x" * 100_000)
+                  _MEMORIES_SUM_SENTENCE, "x" * 100_000)
     assert cd["message"] == "x" * 100_000
     assert hc.get_state()["clamped"] == 0
 
@@ -302,7 +318,7 @@ def t_ext_full_path_clamps():
     cd = _run_ext({"hardening_enabled": True, "history_clamp_enabled": True,
                    "history_clamp_max_chars_override": None,
                    "history_clamp_inject_truncation_notice": False},
-                  "memory.memories_sum.sys.md", "x" * 100_000)
+                  _MEMORIES_SUM_SENTENCE, "x" * 100_000)
     assert hc.get_state()["clamped"] == 1
     assert len(cd["message"]) == 50_000
 
@@ -322,11 +338,10 @@ def t_ext_ast_shape():
 
 
 _CASES = [
-    # prompt detection (7)
+    # prompt detection (5)
     ('prompt_memories_sum', t_prompt_memories_sum),
     ('prompt_solutions_sum', t_prompt_solutions_sum),
-    ('prompt_fragments_sum', t_prompt_fragments_sum),
-    ('prompt_solutions_sys', t_prompt_solutions_sys),
+    ('prompt_live_upstream_files', t_prompt_live_upstream_files),
     ('prompt_non_memory', t_prompt_non_memory),
     ('prompt_empty', t_prompt_empty),
     ('prompt_non_string', t_prompt_non_string),

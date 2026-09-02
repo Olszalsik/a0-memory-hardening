@@ -46,6 +46,7 @@ class Watchdog:
     hard_cap_sec: float = 90.0
     cancelled: bool = False
     completed: bool = False
+    started_counted: bool = False
 
     @property
     def age_sec(self) -> float:
@@ -61,7 +62,6 @@ class Watchdog:
 
 class WatchdogRegistry:
     _registry: Dict[str, Watchdog] = {}
-    _lock = asyncio.Lock() if False else None  # use a real lock for thread safety
 
     @classmethod
     def _key(cls, agent) -> str:
@@ -125,9 +125,38 @@ class WatchdogRegistry:
         return cls._registry.get(cls._key(agent))
 
     @classmethod
+    def flag_aging(cls, aging_threshold_sec: float) -> int:
+        """Count (without cancelling) tasks pending longer than
+        aging_threshold_sec. Used by the health probe as a soft warning:
+        a pending recall task is not necessarily stuck -- with
+        ``memory_recall_delayed`` enabled, ``_91_recall_wait`` waits a
+        full iteration before awaiting it. Reaping happens at the
+        configured hard cap instead. Returns the count flagged.
+        """
+        count = 0
+        now = time.time()
+        for wd in list(cls._registry.values()):
+            if wd.completed or wd.cancelled:
+                continue
+            try:
+                if wd.task.done():
+                    continue
+            except Exception:
+                continue
+            if (now - wd.started_at) > aging_threshold_sec:
+                count += 1
+        return count
+
+    @classmethod
     def reap_stale(cls, stuck_threshold_sec: float) -> int:
         """Cancel any watchdog whose task has been pending for more than
         stuck_threshold_sec. Returns the count cancelled.
+
+        Callers should pass the configured hard cap
+        (``watchdog_hard_cap_sec``), not a short "stuck" guess: with
+        delayed recall the task is legitimately pending for a whole
+        agent iteration, and cancelling it makes ``_91_recall_wait``'s
+        ``await task`` raise CancelledError.
         """
         count = 0
         now = time.time()

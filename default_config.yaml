@@ -1,4 +1,4 @@
-# memory_hardening -- default configuration (v0.5.3)
+# memory_hardening -- default configuration (v0.5.4)
 #
 # All Phase 1+2+3 features are ENABLED by default with recommended values.
 # To disable a feature, set its `_enabled` key to false. Advanced tuning

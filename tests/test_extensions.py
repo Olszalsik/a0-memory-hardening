@@ -80,7 +80,7 @@ def t_api_handlers():
 def t_manifest():
     import yaml
     m = yaml.safe_load((_PLUGIN / 'plugin.yaml').read_text(encoding='utf-8'))
-    assert m['version'] == '0.5.3'
+    assert m['version'] == '0.5.4'
     cfg = yaml.safe_load((_PLUGIN / 'default_config.yaml').read_text(encoding='utf-8'))
     # Check Phase 3 keys
     for k in ['rate_limiter_enabled', 'per_subdir_breaker_enabled',
@@ -118,7 +118,7 @@ def t_hook_points():
 _CASES = [
     ('all_17_extensions', t_all_extensions),
     ('api_handlers', t_api_handlers),
-    ('manifest_v0.5.3', t_manifest),
+    ('manifest_v0.5.4', t_manifest),
     ('webui_phase3', t_webui),
     ('hook_points', t_hook_points),
 ]

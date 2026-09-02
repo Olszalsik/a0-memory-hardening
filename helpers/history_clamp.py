@@ -9,19 +9,21 @@ was removed once its single extension folded in here.
 Why this exists
 ---------------
 The official ``plugins/_memory/.../monologue_end/_50_memorize_*.py``
-extensions read ``MAX_MSGS_CHARS = 80000`` and truncate the local
-``msgs_text`` variable before calling ``self.agent.call_utility_model``.
-The 80000 budget is too generous for a 32k-context utility model and
-causes ``ContextOverflow`` errors that the cascade can't recover from
-in a single cycle (every utility candidate in the rotation returns the
-same overflow).
+extensions truncate the local ``msgs_text`` variable at
+``MAX_MSGS_CHARS`` (50000 in v2.10) before calling
+``self.agent.call_utility_model``. That budget is too generous for a
+32k-context utility model and causes ``ContextOverflow`` errors that
+the cascade can't recover from in a single cycle (every utility
+candidate in the rotation returns the same overflow).
 
 The official code lives in ``plugins/_memory/`` and is part of
 agent-zero's tracked files, so direct edits are overwritten on update.
 This module hooks the same ``util_model_call_before`` extension point
 that the cascade and the timeout-guard use, and clamps
 ``call_data["message"]`` when the system prompt looks like a
-memory-recall / memorize / solve prompt.
+memorize / solve prompt. Upstream (v2.10) already truncates its own
+``msgs_text`` at ``MAX_MSGS_CHARS = 50000`` from the start; this clamp
+keeps a configurable ceiling below that for small utility windows.
 
 Budget resolution
 -----------------
@@ -40,11 +42,16 @@ The clamp budget is read in this order:
 
 Prompt detection
 ----------------
-The hook does not parse the system prompt. It matches on substring
-presence of the well-known memory system-prompt file names. If a future
-agent-zero version renames them, the substring match silently fails and
-the clamp becomes a no-op for those prompts -- safe degradation, not a
-crash.
+The hook does not parse the system prompt. The framework hands the
+extension the *rendered* prompt content (``read_prompt`` returns file
+content, not the file name), so the detection markers are distinctive
+sentences from the rendered ``memory.memories_sum.sys.md`` and
+``memory.solutions_sum.sys.md`` files. If a future agent-zero version
+rewrites those sentences, the substring match silently fails and the
+clamp becomes a no-op for those prompts -- safe degradation, not a
+crash. The test suite loads the real upstream prompt files when they
+are available so a upstream rewording is caught by CI, not discovered
+in production.
 
 Failure semantics
 -----------------
@@ -63,16 +70,18 @@ from typing import Any, Dict, Optional
 
 _log = logging.getLogger("memory_hardening.history_clamp")
 
-# Stable identifiers of the official memory system-prompt files. The
-# official extensions call ``self.agent.read_prompt(<name>)`` for each.
-# If a future agent-zero version renames them, the substring match in
-# ``_looks_like_memory_prompt`` returns False and the clamp becomes a
-# silent no-op for that prompt -- the safe failure mode.
+# Distinctive sentences from the *rendered* memory system prompts the
+# official extensions pass to ``call_utility_model`` (v2.10 wording):
+#   plugins/_memory/prompts/memory.memories_sum.sys.md
+#   plugins/_memory/prompts/memory.solutions_sum.sys.md
+# The framework delivers the rendered file CONTENT to this hook, not the
+# file name -- matching on file names (the v0.5.0 approach) never matches
+# and turns the clamp into a silent no-op. If upstream rewords these
+# sentences, ``_looks_like_memory_prompt`` returns False and the clamp
+# becomes a silent no-op for that prompt -- the safe failure mode.
 _MEMORY_PROMPT_MARKERS = (
-    "memory.memories_sum",
-    "memory.solutions_sum",
-    "memory.fragments_sum",
-    "memory.solutions.sys",
+    "JSON array of text notes containing durable facts",
+    'containing "problem" and "solution" properties',
 )
 
 # The `_model_fallback` plugin's own memory budget key. When this
@@ -130,10 +139,10 @@ def _looks_like_memory_prompt(system: str) -> bool:
     memorize / solve prompt from the official ``_memory`` plugin.
 
     Substring matching (not a full parse): the system prompts are large
-    Markdown blobs and parsing them is fragile. The markers are stable
-    file names that the official extensions reference via
-    ``read_prompt(...)``; if upstream renames them, this returns False
-    and the clamp becomes a no-op -- the safe failure mode.
+    Markdown blobs and parsing them is fragile. The markers are
+    distinctive sentences from the *rendered* prompt content; if
+    upstream rewords them, this returns False and the clamp becomes a
+    no-op -- the safe failure mode.
     """
     if not isinstance(system, str):
         return False

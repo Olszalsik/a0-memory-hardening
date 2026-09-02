@@ -23,7 +23,9 @@ class AdaptiveInterval(Extension):
         cfg = _read_cfg(self.agent)
         if not cfg or not cfg.get("hardening_enabled", True):
             return
-        if not cfg.get("adaptive_interval_enabled", False):
+        # Default mirrors default_config.yaml (true); get_plugin_config
+        # does not merge defaults with config.json.
+        if not cfg.get("adaptive_interval_enabled", True):
             return
         # Read the _memory plugin's current interval from its config
         try:
