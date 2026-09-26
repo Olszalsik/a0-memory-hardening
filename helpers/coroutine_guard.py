@@ -74,6 +74,12 @@ from __future__ import annotations
 import time
 from typing import Optional
 
+# Bound once at import: used by scan_unawaited_coroutines' `type() is` check.
+# Resolved here rather than per-object because gc.get_objects() can return
+# hundreds of thousands of objects and a module attribute lookup per item is
+# measurable.
+from types import CoroutineType as _CoroutineType
+
 # Process-global tick telemetry. Keyed by the source plugin (e.g.
 # "model_fallback" for the cascade ticks) so future plugins can
 # register their own tick streams without colliding.
@@ -191,45 +197,78 @@ def get_tick_snapshot() -> dict:
 
 
 def scan_unawaited_coroutines() -> int:
-    """Best-effort: scan ``asyncio.all_tasks()`` for cancelled
-    coroutines with closeable names that we can .close() safely.
+    """Close coroutines that were created but never awaited. Return the count.
 
-    Returns the number of coroutines we successfully closed.
+    The previous implementation iterated ``asyncio.all_tasks()`` and could not
+    work, for two independent reasons:
 
-    This is a safety net for coroutines that escape
-    ``model_fallback``'s close path — e.g. a user extension that
-    did its own ``asyncio.wait_for`` without our hygiene, or a
-    cancelled ``OpenAIResponses`` call from the Responses transport
-    path.
+    1. ``all_tasks()`` returns **Task** objects, never bare coroutines. A
+       coroutine that was created and never awaited is not a Task, so the exact
+       objects this function exists to find were never even candidates.
+    2. For the Tasks it *did* see, ``close_inner_coro`` bails on its
+       ``cr_running`` check -- correctly, since closing a coroutine the loop is
+       currently driving would corrupt it. So the result was structurally
+       always 0, at O(all tasks) per sweep.
 
-    Call from a ``job_loop`` extension once a minute, NOT from
-    inside a hot path. Iterating all tasks is O(n) on the running
-    coroutine count.
+    This version walks ``gc.get_objects()`` and asks
+    ``inspect.getcoroutinestate`` for each candidate. That is the
+    version-stable API for exactly this question, and using it matters:
+    an earlier draft here tested ``cr_frame is None`` (and ``f_lasti == -1``
+    in a second attempt), and BOTH are wrong on CPython 3.12, which this
+    project targets. Measured on 3.12.10:
+
+        never started : cr_frame is not None, f_lasti == 0
+        finished      : cr_frame is None
+        suspended     : cr_frame is not None, cr_await is not None
+
+    So a ``cr_frame is None`` test would have silently missed every
+    never-awaited coroutine — the only ones this function exists to find —
+    while the ``f_lasti == -1`` variant is right on 3.10 and wrong on 3.12.
+    ``getcoroutinestate`` returns 'CORO_CREATED' / 'CORO_CLOSED' /
+    'CORO_SUSPENDED' / 'CORO_RUNNING' and has been stable across all of them.
+
+    Only 'CORO_CREATED' (never started) and 'CORO_CLOSED' (finished) are
+    eligible. 'CORO_SUSPENDED' is excluded because it includes the inner
+    coroutine of a live task -- ``await coro()`` sets the outer's
+    ``cr_await`` -- and closing those breaks code that is running. The
+    conservative criterion trades a missed edge case for never corrupting
+    live work.
+
+    Cost: ``gc.get_objects()`` materialises every tracked object, so this is a
+    full-heap walk. The caller runs it on a long interval behind
+    ``coroutine_guard_enabled``; the default interval is deliberately generous.
     """
+    closed = 0
     try:
-        import asyncio
+        import gc
+        from inspect import getcoroutinestate
 
-        closed = 0
-        try:
-            running_loop = asyncio.get_running_loop()
-        except RuntimeError:
-            # No running loop (sync context); nothing to do.
-            return 0
-        for task in asyncio.all_tasks(loop=running_loop):
-            coro = task.get_coro() if hasattr(task, "get_coro") else None
-            if coro is None:
+        for obj in gc.get_objects():
+            # `type() is` rather than isinstance(): subclasses of coroutine
+            # can carry live state we do not understand.
+            if type(obj) is not _CoroutineType:
                 continue
-            if task.done():
-                # Done tasks already cleaned up their coroutines.
+            try:
+                state = getcoroutinestate(obj)
+            except Exception:
                 continue
-            if task.cancelling() == 0 and not task.cancelled():
-                # Active task, not being cancelled. Leave alone.
+            if state not in ("CORO_CREATED", "CORO_CLOSED"):
                 continue
-            if close_inner_coro(coro):
+            # Belt and braces: a live owner must never be corrupted, whatever
+            # the state says.
+            try:
+                if obj.cr_running or obj.cr_await is not None:
+                    continue
+            except Exception:
+                continue
+            try:
+                obj.close()
                 closed += 1
-        return closed
+            except Exception:
+                continue
     except Exception:
-        return 0
+        return closed
+    return closed
 
 
 # ---------------------------------------------------------------------------

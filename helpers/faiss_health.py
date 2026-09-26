@@ -47,6 +47,57 @@ def _index_paths():
 MAX_INDEXES = 200   # cap on index files probed per pass
 MAX_DIRS = 500      # cap on directories walked per pass
 
+# (mtime_ns, size) -> digest. Bounded like the breaker registries so a long
+# run over many transient index paths cannot grow it without limit.
+_HASH_CACHE: Dict[str, tuple] = {}
+_HASH_CACHE_MAX = 512
+_HASH_CHUNK = 65536
+
+
+def _verify_hash(path: str, stored: str) -> bool:
+    """True when the file's sha256 equals `stored`, memoised on (mtime_ns, size).
+
+    probe_one() ran this on every pass, i.e. every
+    `faiss_health_probe_interval_sec` (120s by default) for up to
+    MAX_INDEXES indexes. A FAISS index is routinely hundreds of megabytes, so
+    on a bind-mounted filesystem that is potentially tens of GB re-read every
+    two minutes — the module's own docstring warns about "stat-storm on the
+    9p bindmount" while doing exactly that.
+
+    The cache is not a heuristic: when mtime_ns and size are unchanged the file
+    content is unchanged, so re-hashing cannot yield a different answer. Any
+    change to either invalidates the entry.
+    """
+    try:
+        st = os.stat(path)
+    except OSError:
+        return False
+    key = (st.st_mtime_ns, st.st_size)
+    cached = _HASH_CACHE.get(path)
+    if cached is not None and cached[0] == key:
+        return cached[1] == stored
+    h = hashlib.sha256()
+    try:
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(_HASH_CHUNK), b""):
+                h.update(chunk)
+    except OSError:
+        return False
+    actual = h.hexdigest()
+    if len(_HASH_CACHE) >= _HASH_CACHE_MAX:
+        # Drop the oldest insertion; dicts preserve insertion order.
+        try:
+            _HASH_CACHE.pop(next(iter(_HASH_CACHE)))
+        except (StopIteration, RuntimeError):
+            _HASH_CACHE.clear()
+    _HASH_CACHE[path] = (key, actual)
+    return actual == stored
+
+
+def reset() -> None:
+    """Clear process-global state. Called from ``hooks.uninstall``."""
+    _HASH_CACHE.clear()
+
 
 def probe_one(path, min_size_bytes=1024, max_age_days=90):
     info = {
@@ -73,12 +124,11 @@ def probe_one(path, min_size_bytes=1024, max_age_days=90):
         hash_path = path + ".sha256"
         if os.path.exists(hash_path):
             try:
-                stored = open(hash_path).read().strip()
-                h = hashlib.sha256()
-                with open(path, "rb") as f:
-                    for chunk in iter(lambda: f.read(65536), b""):
-                        h.update(chunk)
-                info["hash_ok"] = (h.hexdigest() == stored)
+                # `open(...).read()` leaked the handle (no context manager) and
+                # is replaced below by a `with` block.
+                with open(hash_path) as fh:
+                    stored = fh.read().strip()
+                info["hash_ok"] = _verify_hash(path, stored)
                 if not info["hash_ok"]:
                     info["warning"] = (info["warning"] or "") + "|hash_mismatch"
             except Exception as e:

@@ -35,6 +35,16 @@ from usr.plugins.memory_hardening.helpers import (
     watchdog as wd,
 )
 
+# Shared with message_loop_start/_40_per_subdir_breaker.py so the gate and the
+# recorder can never disagree about the default. See per_subdir_breaker.py.
+#
+# getattr, not a bare attribute: this module-level line runs at import time, so
+# a bare `psb.DEFAULT_ENABLED` would fail to LOAD the extension (not merely
+# skip it) whenever the process still holds a previously-imported copy of the
+# helper module. Extension files are re-read per dispatch; helper modules are
+# cached in sys.modules. A stale helper must degrade, never raise.
+_PER_SUBDIR_DEFAULT_ENABLED = getattr(psb, "DEFAULT_ENABLED", True)
+
 log = logging.getLogger("memory_hardening.recall_telemetry")
 
 
@@ -95,7 +105,12 @@ class RecallTelemetry(Extension):
         # Pull the task back out of agent data
         task = None
         try:
-            task = self.agent.get_data(wd.RECALL_TASK_KEY)
+            # getattr, not a bare attribute: extension files are re-read per
+            # dispatch but helper modules stay cached in sys.modules, so new
+            # extension code can run against a helper that predates the
+            # constant. See tests/test_extension_failsafe.py.
+            task_key = getattr(wd, "RECALL_TASK_KEY", "_recall_memories_task")
+            task = self.agent.get_data(task_key)
         except Exception as e:
             log.debug("get_data failed: %s", e)
             return
@@ -189,7 +204,17 @@ class RecallTelemetry(Extension):
         # Feed the per-subdir breaker (v0.5.4 fix: record() previously had
         # no callers, so that breaker stayed closed forever and its
         # should_skip() gate in _40_per_subdir_breaker never opened).
-        if cfg.get("per_subdir_breaker_enabled", False):
+        #
+        # NOTE: this default MUST match the one in
+        # `message_loop_start/_40_per_subdir_breaker.py`. They were `False`
+        # here and `True` there, which is only latent because a live
+        # config.json carries the key: on a clean install, where
+        # helpers.plugins.get_plugin_config does NOT merge default_config.yaml,
+        # the gate would run while this recorder did not — so no outcome was
+        # ever recorded, the breaker could never open, and the two silently
+        # disagreed about whether the feature was enabled. A single constant
+        # imported by both removes the whole class of bug.
+        if cfg.get("per_subdir_breaker_enabled", _PER_SUBDIR_DEFAULT_ENABLED):
             try:
                 psb.record(
                     _recall_subdir(self.agent),

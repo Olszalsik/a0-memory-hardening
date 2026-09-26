@@ -29,7 +29,11 @@ log = logging.getLogger("memory_hardening.coroutine_guard_sweep")
 # job_loop extension point on its own schedule; throttling here keeps
 # the sweep predictable.
 _LAST_SWEEP_AT: float = 0.0
-_SWEEP_INTERVAL_S: float = 60.0
+# scan_unawaited_coroutines() walks gc.get_objects(), i.e. the whole tracked
+# heap. That is far more expensive than the O(all tasks) walk it replaced, so
+# the interval is deliberately generous: leaked coroutines are a slow
+# accumulating leak, not a per-second problem. 300s, not 60s.
+_SWEEP_INTERVAL_S: float = 300.0
 
 
 def _read_cfg(agent):
@@ -74,9 +78,10 @@ class CoroutineGuardSweep(Extension):
         if closed > 0:
             log.info("coroutine_guard sweep closed %d leaked coroutine(s)", closed)
             try:
-                tm.record(
-                    "info",
-                    f"coroutine_guard sweep closed {closed} leaked coroutine(s)",
-                )
+                # The telemetry module exposes `record_health_warning()`, not
+                # `record()`. The old call raised AttributeError and was
+                # swallowed by the bare `except`, so this log line never
+                # reached the dashboard at all.
+                tm.record_health_warning()
             except Exception:
                 pass

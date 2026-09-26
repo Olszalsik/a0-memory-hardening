@@ -22,6 +22,21 @@ def _archive_dir(path: str) -> str:
 
 _LAST_SCAN: Optional[Dict] = None
 
+# Bounds for the tree walk, mirroring faiss_health.MAX_INDEXES / MAX_DIRS.
+MAX_DIRS = 500          # directories visited per scan
+MAX_CANDIDATES = 200    # stale indexes reported per scan
+
+
+def reset() -> None:
+    """Clear process-global state. Called from ``hooks.uninstall``.
+
+    Without this, the last scan summary (and its candidate list) survived a
+    disable/enable cycle, so /stats reported pre-uninstall state for a plugin
+    that had not run yet.
+    """
+    global _LAST_SCAN
+    _LAST_SCAN = None
+
 
 def scan(*, max_age_days: int = 90, archive_dir: str = "tmp/memory/archive") -> Dict:
     """Scan all known FAISS index metadata for stale entries and archive them.
@@ -44,10 +59,27 @@ def scan(*, max_age_days: int = 90, archive_dir: str = "tmp/memory/archive") -> 
         return summary
     # v0.6.0: recursive walk (nested knowledge subdirs were invisible to
     # the old single-level listing); subdir = path relative to usr/memory.
-    for root, _dirs, _files in os.walk(base):
+    #
+    # v0.7.0: the walk is BOUNDED. `faiss_health` already capped its own scan
+    # (MAX_INDEXES / MAX_DIRS) precisely because `usr/memory` is large,
+    # user-controlled in depth, and may sit on a bind mount; this module
+    # walked it unbounded on the same job_loop schedule, so the two halves of
+    # the same health feature had opposite cost profiles.
+    walked = 0
+    for root, dirs, _files in os.walk(base):
+        walked += 1
+        if walked > MAX_DIRS:
+            summary["truncated"] = True
+            break
+        # Prune descent at this level; we only ever match the index file
+        # inside the current directory.
+        dirs[:] = []
         p = os.path.join(root, "index.faiss")
         if not os.path.exists(p):
             continue
+        if len(summary["candidates"]) >= MAX_CANDIDATES:
+            summary["truncated"] = True
+            break
         try:
             mtime = os.path.getmtime(p)
             if mtime < cutoff:
@@ -55,6 +87,7 @@ def scan(*, max_age_days: int = 90, archive_dir: str = "tmp/memory/archive") -> 
                 summary["candidates"].append({"subdir": rel, "age_days": round((now - mtime) / 86400.0, 1)})
         except OSError:
             continue
+    summary["dirs_walked"] = walked
     if summary["candidates"]:
         try:
             manifest = os.path.join(arch, f"quarantine_{int(now)}.json")

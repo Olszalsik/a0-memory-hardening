@@ -26,8 +26,8 @@ def check(name, fn):
     except Exception as e:
         results.append((name, f'FAIL: {e}'))
 
-# All 16 extension files (Phase 1+2+3+4+5; v0.6.0 removed the dead
-# adaptive_interval extension)
+# All 17 extension files (Phase 1+2+3+4+5; v0.6.0 removed the dead
+# adaptive_interval extension; v0.7.0 added the recall gate)
 all_ext = [
     ('message_loop_start/_10_watchdog_init.py', 'WatchdogInit'),
     ('message_loop_start/_20_circuit_breaker.py', 'CircuitBreakerGate'),
@@ -41,6 +41,10 @@ all_ext = [
     ('message_loop_prompts_after/_05_recall_method_patch.py', 'RecallMethodPatch'),
     # v0.5.2
     ('message_loop_prompts_after/_06_recall_wait_guard.py', 'RecallWaitGuard'),
+    # v0.7.0: the gate that makes the breakers actually skip the FAISS call.
+    # Priority 04 — after the message_loop_start gates (20/30/40) that set
+    # the flags, and before _50_recall_memories builds the recall task.
+    ('message_loop_prompts_after/_04_recall_gate.py', 'RecallGate'),
     ('job_loop/_30_memory_health.py', 'MemoryHealth'),
     ('job_loop/_40_index_gc.py', 'IndexGC'),
     ('job_loop/_50_quarantine.py', 'QuarantineScan'),
@@ -64,7 +68,7 @@ def t_all_extensions():
                 for b in n.bases:
                     if isinstance(b, ast.Name) and b.id == 'Extension':
                         found.append(expected)
-    assert len(found) == 16, f'expected 16, got {len(found)}: {found}'
+    assert len(found) == 17, f'expected 17, got {len(found)}: {found}'
 
 def t_api_handlers():
     for f, expected in [('stats.py', 'Stats'), ('reset_breaker.py', 'ResetBreaker')]:
@@ -83,7 +87,7 @@ def t_api_handlers():
 def t_manifest():
     import yaml
     m = yaml.safe_load((_PLUGIN / 'plugin.yaml').read_text(encoding='utf-8'))
-    assert m['version'] == '0.6.0'
+    assert m['version'] == '0.7.0'
     cfg = yaml.safe_load((_PLUGIN / 'default_config.yaml').read_text(encoding='utf-8'))
     # Check Phase 3 keys
     for k in ['rate_limiter_enabled', 'per_subdir_breaker_enabled',
@@ -128,7 +132,7 @@ def t_hook_points():
 _CASES = [
     ('all_16_extensions', t_all_extensions),
     ('api_handlers', t_api_handlers),
-    ('manifest_v0.6.0', t_manifest),
+    ('manifest_v0.7.0', t_manifest),
     ('webui_phase3', t_webui),
     ('hook_points', t_hook_points),
 ]

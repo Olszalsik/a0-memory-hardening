@@ -16,6 +16,7 @@ from usr.plugins.memory_hardening.helpers import (
     per_subdir_breaker as psb,
     rate_limiter as rl,
     quarantine as qu,
+    recall_gate as rg,
     recall_patch as rp,
     recall_wait_guard as rwg,
     telemetry as tm,
@@ -83,6 +84,15 @@ class Stats(ApiHandler):
             "recall_patch": rp.get_state(),
             # v0.5.2 (2026-08-26) — recall-wait TimeoutError guard
             "recall_wait_guard": rwg.get_state(),
+            # v0.7.0 — the gate that makes the breaker / rate limiter /
+            # per-subdir breaker actually skip a FAISS call. Exposed so the
+            # dashboard can distinguish "breaker open" from "breaker open AND
+            # the recall was actually suppressed", which were identical (and
+            # misleading) before v0.7.0.
+            "recall_gate": {
+                "state": rg.current_state(),
+                "counters": dict(rg.counters),
+            },
             # v0.5.0 (2026-08-10) — memory history clamp (merged from _memory_resilience)
             "history_clamp": hc.get_state(),
             "config": {

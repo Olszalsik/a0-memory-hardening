@@ -1,6 +1,7 @@
-# Lifecycle hooks for the memory_hardening plugin (v0.6.0).
+# Lifecycle hooks for the memory_hardening plugin (v0.7.0).
 from __future__ import annotations
 
+import importlib
 import logging
 
 log = logging.getLogger("memory_hardening.hooks")
@@ -77,3 +78,41 @@ def uninstall() -> None:
             pass
     except Exception as e:
         log.warning("phase 3 shutdown failed: %s", e)
+
+    # The AGENTS.md contract is that EVERY helper module exposes reset() so
+    # uninstall clears its process-global state. That contract was not kept:
+    # the list below was missing, so a disable/enable cycle left stale state
+    # behind — most visibly an OPEN global circuit breaker (never reset), plus
+    # per-subdir breaker events, the last FAISS hash cache, the quarantine
+    # scan result, the index-GC access map and auto-recover's history/lock
+    # dicts, all of which kept growing or reporting across cycles.
+    #
+    # Each helper is reset independently: one import failure must not skip the
+    # rest, which is what the single shared try/except above used to allow.
+    for module_name, attr in (
+        ("telemetry", "reset"),
+        ("circuit_breaker", "reset_instance"),
+        ("recall_patch", "reset_state"),
+        ("recall_gate", "reset"),
+        ("faiss_health", "reset"),
+        ("quarantine", "reset"),
+        ("index_gc", "reset"),
+        ("auto_recover", "reset"),
+        ("memorize_watchdog", "reset"),
+    ):
+        try:
+            mod = importlib.import_module(
+                f"usr.plugins.memory_hardening.helpers.{module_name}"
+            )
+            fn = getattr(mod, attr, None)
+            if callable(fn):
+                fn()
+            else:
+                log.warning(
+                    "uninstall: %s has no %s(); state may leak across "
+                    "disable/enable",
+                    module_name,
+                    attr,
+                )
+        except Exception as e:
+            log.warning("uninstall: %s reset failed: %s", module_name, e)

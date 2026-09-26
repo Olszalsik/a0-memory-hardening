@@ -172,3 +172,43 @@ class MemorizeWatchdogRegistry:
     def clear(cls) -> None:
         with cls._lock:
             cls._states.clear()
+
+    @classmethod
+    def prune(cls, *, older_than_sec: float) -> int:
+        """Drop state for runs older than `older_than_sec`. Returns the count.
+
+        A state entry is normally removed by end(). It survives only when the
+        run never ended — i.e. exactly the hang this watchdog exists to report.
+        Left alone those entries accumulate for the process lifetime and, worse,
+        keep `warned_soft`/`warned_hard` set, so check() stays silent forever
+        after. Pruning on a cap far above any legitimate memorize duration
+        re-arms the warnings without racing real work.
+        """
+        now = time.time()
+        dropped = 0
+        with cls._lock:
+            for key in [
+                k
+                for k, st in cls._states.items()
+                if (now - st.started_at) >= older_than_sec
+            ]:
+                del cls._states[key]
+                dropped += 1
+        return dropped
+
+    @classmethod
+    def reset(cls) -> None:
+        """Clear process-global state. Called from ``hooks.uninstall``.
+
+        `clear()` predates this and does the same thing; both names are kept
+        so either spelling works at a call site.
+        """
+        cls.clear()
+
+
+# Module-level entry point, so the "every helper exposes reset()" contract can
+# be checked mechanically (and so hooks.uninstall has one uniform call shape).
+# The state itself lives on the registry class, which is the historical home.
+def reset() -> None:
+    """Clear process-global state. Called from ``hooks.uninstall``."""
+    MemorizeWatchdogRegistry.clear()

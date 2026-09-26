@@ -54,6 +54,12 @@ def _move_to_quarantine(path, configured_dir: Optional[str] = None):
 
 
 def attempt_recovery(subdir, index_path, quarantine_dir: Optional[str] = None):
+    # NOTE: the in-progress guard below is a plain check-then-set with no
+    # lock, so two concurrent calls for the same path can both pass it. That
+    # is acceptable here only because the operation is idempotent (move the
+    # corrupt index aside); a second caller simply finds nothing to move and
+    # returns a record with quarantined_to=None. Do not add side effects to
+    # this path without adding real mutual exclusion first.
     if _recovery_lock_path.get(index_path):
         return {"attempted": False, "reason": "already_in_progress"}
     _recovery_lock_path[index_path] = True
@@ -87,3 +93,15 @@ def record_outcome(subdir, *, success, error=None):
         if error:
             _recovery_history[subdir]["rebuild_error"] = error
         _recovery_history[subdir]["rebuild_at"] = time.time()
+
+
+def reset():
+    """Clear process-global state. Called from ``hooks.uninstall``.
+
+    Both dicts grow per index path / per subdir and are never pruned during a
+    run, so without this a long-lived process accumulated one entry per memory
+    subdir it ever touched, and a disabled plugin kept reporting its old
+    recovery history on /stats.
+    """
+    _recovery_lock_path.clear()
+    _recovery_history.clear()

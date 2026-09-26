@@ -36,6 +36,18 @@ def _subdir_last_used(subdir, default=None):
 
 
 def _evict(subdir):
+    """Drop a cached index from the framework's registry.
+
+    Concurrency note: `Memory.index` is a plain dict shared by every agent in
+    the process, and `Memory.get` does `Memory.index[memory_subdir]` as a bare
+    subscript (plugins/_memory/helpers/memory.py:126). Deleting here while
+    another agent is between its `.get()` check and that subscript would raise
+    KeyError inside the framework. That window is inherent to the upstream
+    design, not introduced here: the framework's own `Memory.reload()` deletes
+    the same key the same way (memory.py:131-132). We therefore do not attempt
+    a lock the read path would not honour — doing so would be theatre. A
+    subsequent recall simply reloads the index from disk.
+    """
     try:
         from plugins._memory.helpers.memory import Memory
         if subdir in Memory.index:
@@ -106,3 +118,19 @@ def snapshot():
 def mark_gc_run():
     global _last_gc_at
     _last_gc_at = time.time()
+
+
+def reset():
+    """Clear process-global state. Called from ``hooks.uninstall``.
+
+    Deliberately does NOT touch `Memory.index`: those entries belong to the
+    `_memory` plugin and are reloaded on demand. Only our own bookkeeping
+    (last-access times, the GC clock and the evict counter) is cleared, so a
+    disabled plugin leaves nothing behind and a re-enabled one does not act on
+    pre-disable observations.
+    """
+    global _last_gc_at, _evicted_total
+    with _lock:
+        _last_access.clear()
+        _last_gc_at = 0.0
+        _evicted_total = 0

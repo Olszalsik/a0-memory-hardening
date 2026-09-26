@@ -237,3 +237,21 @@ class WatchdogRegistry:
                 "task_done": wd.task.done(),
             }
         return out
+
+
+# Module-level entry point so the "every helper exposes reset()" contract can be
+# checked mechanically, and so hooks.uninstall has one uniform call shape.
+# The state itself lives on the registry class, its historical home.
+def reset() -> None:
+    """Cancel every tracked task and clear the registry.
+
+    Called from ``hooks.uninstall``. Cancelling first matters: it prevents a
+    live asyncio task from outliving a plugin the user just disabled while
+    still holding references to its memory objects.
+    """
+    try:
+        WatchdogRegistry.cancel_all()
+    except Exception:
+        pass
+    with WatchdogRegistry._lock:
+        WatchdogRegistry._registry.clear()
