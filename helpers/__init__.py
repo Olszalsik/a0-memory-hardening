@@ -9,7 +9,7 @@ used by the extension hooks and API endpoints:
 - circuit_breaker: sliding-window failure counter with skip cooldown
 - coroutine_guard (Phase 4, 2026-07-19): closes leaked litellm
   coroutines on ``asyncio.wait_for`` cancellation paths; tick
-  callback consumed by ``_model_fallback`` so the WebUI dashboard
+  callback consumed by ``model_fallback`` so the WebUI dashboard
   can show that the event loop is still alive during long cycle
   sleeps.
 

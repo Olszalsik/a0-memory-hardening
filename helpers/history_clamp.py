@@ -33,7 +33,7 @@ The clamp budget is read in this order:
    plugin's config (per-agent / per-project / global). When present and
    a positive integer, the caller has explicitly chosen a different
    budget.
-2. ``_model_fallback.memory_memorize_max_chars`` (default 50000) from
+2. ``model_fallback.memory_memorize_max_chars`` (default 50000) from
    the cascade plugin's config. This means a single setting governs
    both the utility-call timeout budget (used by the cascade) and the
    memory-recall budget (used here) -- both protect the same
@@ -177,7 +177,7 @@ def _resolve_budget(agent: Any, own_override: Any = None) -> int:
 
     Resolution order:
     1. ``own_override`` (``history_clamp_max_chars_override``).
-    2. ``_model_fallback.memory_memorize_max_chars``.
+    2. ``model_fallback.memory_memorize_max_chars``.
     3. ``_DEFAULT_BUDGET`` (50000).
 
     Never raises: a config-fetch failure falls through to the default.
@@ -187,7 +187,7 @@ def _resolve_budget(agent: Any, own_override: Any = None) -> int:
         return override
     try:
         from helpers import plugins as plugin_helpers  # type: ignore
-        fb = plugin_helpers.get_plugin_config("_model_fallback", agent) or {}
+        fb = plugin_helpers.get_plugin_config("model_fallback", agent) or {}
     except Exception:  # noqa: BLE001
         fb = {}
     candidate = _coerce_positive_int(fb.get(_FALLBACK_BUDGET_KEY))

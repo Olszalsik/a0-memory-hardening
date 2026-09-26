@@ -1,7 +1,7 @@
 """Memory history clamp extension.
 
 Hooks ``util_model_call_before`` at priority 10 -- after the
-``_model_fallback`` cascade hooks at ``_00`` / ``_01`` -- and clamps
+``model_fallback`` cascade hooks at ``_00`` / ``_01`` -- and clamps
 the chat-history string the official ``_memory`` plugin sends to the
 utility model during memorize / solve operations. See
 ``helpers/history_clamp.py`` for the rationale and budget resolution.

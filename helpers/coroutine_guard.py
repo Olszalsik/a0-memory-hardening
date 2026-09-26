@@ -3,7 +3,7 @@
 WHY THIS EXISTS
 ---------------
 Across an extended utility-model outage in continuous-fallback mode,
-``usr.plugins._model_fallback.fallback._patched_call_utility_model`` and
+``usr.plugins.model_fallback.fallback._patched_call_utility_model`` and
 its chat-model twin each do ``await asyncio.wait_for(coro, timeout=...)``.
 When the timeout fires, ``asyncio.wait_for`` cancels the outer task, but
 the litellm transport (helpers/litellm_transport.py:239) constructs a
@@ -32,13 +32,13 @@ WHAT THIS DOES
 Two complementary pieces:
 
 1. A ``close_inner_coro(coro)`` helper for the user plugins (currently
-   ``_model_fallback``) to call inside their ``except
+   ``model_fallback``) to call inside their ``except
    (asyncio.TimeoutError, asyncio.CancelledError)`` blocks. Calling
    ``.close()`` on a never-awaited coroutine releases its frame
    immediately, eliminating the warning and the leak.
 
 2. An ``on_long_sleep_tick(remaining_seconds)`` callback that
-   ``_model_fallback.fallback._yielding_sleep`` invokes every 2s
+   ``model_fallback.fallback._yielding_sleep`` invokes every 2s
    during the long cycle sleep. We record the tick so observability
    tools (the WebUI dashboard, the
    ``/api/plugins/memory_hardening/stats`` endpoint) can show that
@@ -49,7 +49,7 @@ Two complementary pieces:
 
 A periodic ``scan_unawaited_coroutines()`` helper is provided so a
 ``job_loop`` extension can call it (e.g. once a minute) and clean up
-any coroutines that escaped from paths OTHER than ``_model_fallback``
+any coroutines that escaped from paths OTHER than ``model_fallback``
 (e.g. cancelled user extensions, an interrupted
 ``_extension_import_guard`` import). This is best-effort: closing
 coroutines the framework is still using is dangerous, so we only
@@ -59,10 +59,10 @@ across the event loop boundary (``OpenAIChatCompletion``,
 
 DESIGN
 ------
-* No monkey-patching. ``_model_fallback`` imports ``close_inner_coro``
+* No monkey-patching. ``model_fallback`` imports ``close_inner_coro``
   and ``on_long_sleep_tick`` lazily, so the plugin works even when
   ``memory_hardening`` is disabled (the import path raises, the
-  ``_model_fallback`` call site catches it as a no-op).
+  ``model_fallback`` call site catches it as a no-op).
 * All process-global state lives in module-level dicts; ``reset()``
   clears them on plugin uninstall, matching the convention in
   every other helper in this plugin.
@@ -75,7 +75,7 @@ import time
 from typing import Optional
 
 # Process-global tick telemetry. Keyed by the source plugin (e.g.
-# "_model_fallback" for the cascade ticks) so future plugins can
+# "model_fallback" for the cascade ticks) so future plugins can
 # register their own tick streams without colliding.
 #
 # Value layout::
@@ -155,7 +155,7 @@ def close_inner_coro(coro) -> bool:
 
 
 def on_long_sleep_tick(remaining_seconds: float) -> None:
-    """Called every 2s by ``_model_fallback`` during a long cycle sleep.
+    """Called every 2s by ``model_fallback`` during a long cycle sleep.
 
     Records that the loop is alive. Pure observability — no
     side effects, no asyncio tasks, no I/O.
@@ -163,7 +163,7 @@ def on_long_sleep_tick(remaining_seconds: float) -> None:
     try:
         now = time.monotonic()
         state = _tick_state.setdefault(
-            "_model_fallback",
+            "model_fallback",
             {"last_tick_at": 0.0, "tick_count": 0, "longest_remaining_s": 0.0},
         )
         state["last_tick_at"] = now
@@ -197,7 +197,7 @@ def scan_unawaited_coroutines() -> int:
     Returns the number of coroutines we successfully closed.
 
     This is a safety net for coroutines that escape
-    ``_model_fallback``'s close path — e.g. a user extension that
+    ``model_fallback``'s close path — e.g. a user extension that
     did its own ``asyncio.wait_for`` without our hygiene, or a
     cancelled ``OpenAIResponses`` call from the Responses transport
     path.

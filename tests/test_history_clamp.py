@@ -5,7 +5,7 @@
 # - _looks_like_memory_prompt: substring match for the official memory
 #   system-prompt file names; no false positives on non-memory prompts.
 # - _resolve_budget: own override wins; falls through to
-#   _model_fallback.memory_memorize_max_chars; default 50000; bool
+#   model_fallback.memory_memorize_max_chars; default 50000; bool
 #   override rejected; string coercion; zero/negative ignored.
 # - clamp(): no-op on non-memory calls; no-op within budget; truncates
 #   and appends notice when over budget; bug-safe (exception in resolve
@@ -98,14 +98,14 @@ def t_prompt_non_string():
 def t_budget_own_override_wins():
     agent = MagicMock()
     with patch("helpers.plugins.get_plugin_config") as gpc:
-        gpc.side_effect = lambda name, _a: {"_model_fallback": 99999}.get(name, {})
+        gpc.side_effect = lambda name, _a: {"model_fallback": 99999}.get(name, {})
         assert hc._resolve_budget(agent, own_override=30000) == 30000
 
 def t_budget_falls_through_to_fallback():
     agent = MagicMock()
     with patch("helpers.plugins.get_plugin_config") as gpc:
         gpc.side_effect = lambda name, _a: {
-            "_model_fallback": {"memory_memorize_max_chars": 42000},
+            "model_fallback": {"memory_memorize_max_chars": 42000},
         }.get(name, {})
         assert hc._resolve_budget(agent, own_override=None) == 42000
 
@@ -130,7 +130,7 @@ def t_budget_string_garbage_ignored():
     agent = MagicMock()
     with patch("helpers.plugins.get_plugin_config") as gpc:
         gpc.side_effect = lambda name, _a: {
-            "_model_fallback": {"memory_memorize_max_chars": 12345},
+            "model_fallback": {"memory_memorize_max_chars": 12345},
         }.get(name, {})
         assert hc._resolve_budget(agent, own_override="not a number") == 12345
 
@@ -138,7 +138,7 @@ def t_budget_zero_negative_ignored():
     agent = MagicMock()
     with patch("helpers.plugins.get_plugin_config") as gpc:
         gpc.side_effect = lambda name, _a: {
-            "_model_fallback": {"memory_memorize_max_chars": 12345},
+            "model_fallback": {"memory_memorize_max_chars": 12345},
         }.get(name, {})
         assert hc._resolve_budget(agent, own_override=0) == 12345
         assert hc._resolve_budget(agent, own_override=-5) == 12345
@@ -149,7 +149,7 @@ def t_budget_bool_override_rejected():
     agent = MagicMock()
     with patch("helpers.plugins.get_plugin_config") as gpc:
         gpc.side_effect = lambda name, _a: {
-            "_model_fallback": {"memory_memorize_max_chars": 12345},
+            "model_fallback": {"memory_memorize_max_chars": 12345},
         }.get(name, {})
         assert hc._resolve_budget(agent, own_override=True) == 12345
 
@@ -171,7 +171,7 @@ def t_clamp_within_budget_untouched():
     agent = MagicMock()
     with patch("helpers.plugins.get_plugin_config") as gpc:
         gpc.side_effect = lambda name, _a: {
-            "_model_fallback": {"memory_memorize_max_chars": 200_000},
+            "model_fallback": {"memory_memorize_max_chars": 200_000},
         }.get(name, {})
         cd = {"system": _MEMORIES_SUM_SENTENCE,
               "message": "x" * 100_000}
@@ -183,7 +183,7 @@ def t_clamp_over_budget_truncated_no_notice():
     agent = MagicMock()
     with patch("helpers.plugins.get_plugin_config") as gpc:
         gpc.side_effect = lambda name, _a: {
-            "_model_fallback": {"memory_memorize_max_chars": 50_000},
+            "model_fallback": {"memory_memorize_max_chars": 50_000},
         }.get(name, {})
         cd = {"system": _MEMORIES_SUM_SENTENCE,
               "message": "x" * 100_000}
@@ -196,7 +196,7 @@ def t_clamp_truncation_appends_notice():
     agent = MagicMock()
     with patch("helpers.plugins.get_plugin_config") as gpc:
         gpc.side_effect = lambda name, _a: {
-            "_model_fallback": {"memory_memorize_max_chars": 50_000},
+            "model_fallback": {"memory_memorize_max_chars": 50_000},
         }.get(name, {})
         cd = {"system": _SOLUTIONS_SUM_SENTENCE, "message": "x" * 100_000}
         assert _clamp(cd, agent, inject_notice=True) == "clamped"
@@ -243,7 +243,7 @@ def t_clamp_own_override_takes_precedence():
     agent = MagicMock()
     with patch("helpers.plugins.get_plugin_config") as gpc:
         gpc.side_effect = lambda name, _a: {
-            "_model_fallback": {"memory_memorize_max_chars": 50000},
+            "model_fallback": {"memory_memorize_max_chars": 50000},
         }.get(name, {})
         cd = {"system": _MEMORIES_SUM_SENTENCE, "message": "y" * 50_000}
         assert _clamp(cd, agent, own_override=1000, inject_notice=False) == "clamped"
@@ -258,7 +258,7 @@ def t_state_accumulates():
     agent = MagicMock()
     with patch("helpers.plugins.get_plugin_config") as gpc:
         gpc.side_effect = lambda name, _a: {
-            "_model_fallback": {"memory_memorize_max_chars": 50000},
+            "model_fallback": {"memory_memorize_max_chars": 50000},
         }.get(name, {})
         _clamp({"system": "code review", "message": "x" * 10}, agent)        # non-memory
         _clamp({"system": _MEMORIES_SUM_SENTENCE, "message": "x" * 100}, agent)  # within
@@ -291,7 +291,7 @@ def _run_ext(plugin_cfg, system_prompt, message):
     with patch("helpers.plugins.get_plugin_config") as gpc:
         gpc.side_effect = lambda name, _a: (
             plugin_cfg if name == "memory_hardening" else
-            {"_model_fallback": {"memory_memorize_max_chars": 50000}}.get(name, {})
+            {"model_fallback": {"memory_memorize_max_chars": 50000}}.get(name, {})
         )
         class _H(ext_mod.ClampMemoryUtilCall):
             def __init__(self):
